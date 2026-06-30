@@ -5,7 +5,12 @@ import { rebuildNoteDerivedIndex } from '../db/reconcile';
 import { NotesList } from './NotesList';
 import { NoteEditorScreen } from './NoteEditorScreen';
 
-export function NotesApp() {
+export interface NotesAppProps {
+  /** Set (to a new value) to select a note from outside, e.g. the task pool. */
+  jumpToNoteId?: string | null;
+}
+
+export function NotesApp({ jumpToNoteId }: NotesAppProps = {}) {
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -17,6 +22,10 @@ export function NotesApp() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  useEffect(() => {
+    if (jumpToNoteId) setSelectedId(jumpToNoteId);
+  }, [jumpToNoteId]);
 
   async function handleCreate() {
     const { notes: noteRepo } = await getAppStorage();

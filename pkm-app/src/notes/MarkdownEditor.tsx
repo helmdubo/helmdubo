@@ -12,7 +12,8 @@ export interface MarkdownEditorProps {
 
 export interface MarkdownEditorHandle {
   getSelectedText: () => string;
-  replaceSelection: (text: string) => void;
+  /** Replaces the current selection and returns the resulting full document text. */
+  replaceSelection: (text: string) => string;
 }
 
 const noopTaskHandlers: TaskWidgetHandlers = {
@@ -42,9 +43,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         },
         replaceSelection: (text: string) => {
           const view = viewRef.current;
-          if (!view) return;
+          if (!view) return '';
           const { from, to } = view.state.selection.main;
           view.dispatch({ changes: { from, to, insert: text } });
+          return view.state.doc.toString();
         },
       }),
       [],

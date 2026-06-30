@@ -84,6 +84,30 @@ describe('TaskRepo', () => {
     expect(await repo.get(task.id)).toBeDefined();
   });
 
+  it('listAll() lists tasks, optionally filtered by status', async () => {
+    const { repo, conn } = await createRepo();
+    await createNote(conn, 'note-1');
+    const a = await repo.createWithFirstRef('note-1', 'Open task');
+    const b = await repo.createWithFirstRef('note-1', 'Done task');
+    await repo.setStatus(b.id, 'done');
+
+    const all = await repo.listAll();
+    expect(all.map((t) => t.id).sort()).toEqual([a.id, b.id].sort());
+
+    const openOnly = await repo.listAll('open');
+    expect(openOnly.map((t) => t.id)).toEqual([a.id]);
+  });
+
+  it('getFirstNoteId() returns the earliest note referencing the task', async () => {
+    const { repo, conn } = await createRepo();
+    await createNote(conn, 'note-1');
+    await createNote(conn, 'note-2');
+    const task = await repo.createWithFirstRef('note-1', 'Task');
+    await repo.addRef(task.id, 'note-2');
+
+    expect(await repo.getFirstNoteId(task.id)).toBe('note-1');
+  });
+
   it('setTitle() and setStatus() update the task object', async () => {
     const { repo, conn } = await createRepo();
     await createNote(conn, 'note-1');

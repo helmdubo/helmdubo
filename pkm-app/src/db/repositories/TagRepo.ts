@@ -60,6 +60,14 @@ export class TagRepo {
     }
   }
 
+  async getTagsForTask(taskId: string): Promise<Tag[]> {
+    return this.conn.query<Tag>(
+      `SELECT t.id, t.name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id
+       WHERE tt.task_id = ? ORDER BY t.name;`,
+      [taskId],
+    );
+  }
+
   async clearTaskTags(taskId: string): Promise<void> {
     await this.conn.exec('DELETE FROM task_tags WHERE task_id = ?;', [taskId]);
   }

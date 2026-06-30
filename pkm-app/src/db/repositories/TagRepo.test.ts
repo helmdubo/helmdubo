@@ -119,6 +119,15 @@ describe('TagRepo', () => {
     expect(rows.map((r) => r.name)).toEqual(['b', 'c']);
   });
 
+  it('getTagsForTask() returns the tags bound to a task, sorted by name', async () => {
+    const { repo, conn } = await createRepo();
+    await createTask(conn, 'task-1');
+    await repo.setTaskTags('task-1', ['urgent', 'finance']);
+
+    const tagNames = (await repo.getTagsForTask('task-1')).map((t) => t.name);
+    expect(tagNames).toEqual(['finance', 'urgent']);
+  });
+
   it('setTaskTags() replaces a task\'s tags with exactly the given set', async () => {
     const { repo, conn } = await createRepo();
     await createTask(conn, 'task-1');

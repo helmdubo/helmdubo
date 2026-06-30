@@ -82,6 +82,24 @@ export class TaskRepo {
     return rows[0] ? toTask(rows[0]) : undefined;
   }
 
+  async listAll(statusFilter?: TaskStatus): Promise<Task[]> {
+    const rows = statusFilter
+      ? await this.conn.query<TaskRow>('SELECT * FROM tasks WHERE status = ? ORDER BY updated_at DESC;', [
+          statusFilter,
+        ])
+      : await this.conn.query<TaskRow>('SELECT * FROM tasks ORDER BY updated_at DESC;');
+    return rows.map(toTask);
+  }
+
+  /** Earliest-created note that still references this task, for "open in note" navigation. */
+  async getFirstNoteId(taskId: string): Promise<string | undefined> {
+    const rows = await this.conn.query<{ note_id: string }>(
+      'SELECT note_id FROM task_refs WHERE task_id = ? ORDER BY created_at ASC LIMIT 1;',
+      [taskId],
+    );
+    return rows[0]?.note_id;
+  }
+
   async setTitle(taskId: string, title: string): Promise<void> {
     await this.conn.exec('UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?;', [
       title,

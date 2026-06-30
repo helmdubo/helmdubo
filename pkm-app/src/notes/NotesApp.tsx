@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Note } from '../db/repositories';
 import { getAppStorage } from '../app/storage';
+import { rebuildNoteDerivedIndex } from '../db/reconcile';
 import { NotesList } from './NotesList';
 import { NoteEditorScreen } from './NoteEditorScreen';
 
@@ -33,8 +34,9 @@ export function NotesApp() {
 
   async function handleSave(input: { title: string | null; markdown: string }) {
     if (!selectedId) return;
-    const { notes: noteRepo } = await getAppStorage();
+    const { adapter, notes: noteRepo } = await getAppStorage();
     await noteRepo.update(selectedId, input);
+    await rebuildNoteDerivedIndex(adapter, selectedId);
     await refresh();
   }
 

@@ -5,16 +5,20 @@ import { MarkdownEditor } from './MarkdownEditor';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
 import type { TaskWidgetHandlers } from './taskRefExtension';
 import { renderTaskRefLine } from './taskRef';
+import { Backlinks } from './Backlinks';
+import type { BacklinkEntry } from './Backlinks';
 
 export interface NoteEditorScreenProps {
   note: Note;
   onSave: (input: { title: string | null; markdown: string }) => Promise<void>;
+  onNavigateToNote: (noteId: string) => void;
 }
 
-export function NoteEditorScreen({ note, onSave }: NoteEditorScreenProps) {
+export function NoteEditorScreen({ note, onSave, onNavigateToNote }: NoteEditorScreenProps) {
   const [title, setTitle] = useState(note.title ?? '');
   const [markdown, setMarkdown] = useState(note.markdown);
   const [saving, setSaving] = useState(false);
+  const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const titleRef = useRef(title);
   titleRef.current = title;
@@ -23,6 +27,13 @@ export function NoteEditorScreen({ note, onSave }: NoteEditorScreenProps) {
     setTitle(note.title ?? '');
     setMarkdown(note.markdown);
   }, [note.id, note.title, note.markdown]);
+
+  useEffect(() => {
+    void (async () => {
+      const { tags } = await getAppStorage();
+      setBacklinks(await tags.getBacklinks(note.id));
+    })();
+  }, [note.id]);
 
   const dirty = title !== (note.title ?? '') || markdown !== note.markdown;
 
@@ -106,6 +117,7 @@ export function NoteEditorScreen({ note, onSave }: NoteEditorScreenProps) {
       </button>
       <button onClick={() => void handleCreateTask()}>Create task from selection</button>
       <MarkdownEditor ref={editorRef} value={markdown} onChange={setMarkdown} taskHandlers={taskHandlers} />
+      <Backlinks backlinks={backlinks} onOpen={onNavigateToNote} />
     </section>
   );
 }

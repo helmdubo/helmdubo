@@ -125,3 +125,16 @@ Driven via Playwright against a real `npm run dev` server:
   should follow the same Worker + SAH-Pool-VFS shape but is implemented
   fresh against the `StorageAdapter` interface rather than reusing this
   code directly.
+- **A held-open sync access handle across a same-tab reload is a real risk,
+  not just a multi-tab one.** Found while building T0.9's debug harness: if
+  the page navigates/reloads while a worker's `OpfsSAHPoolDb` is still open,
+  the *next* worker can momentarily fail to reacquire the same handles
+  (`NoModificationAllowedError`), and the SAH Pool VFS's recovery path can
+  make the database look empty until that contention clears. Any code that
+  keeps an adapter open for the page's lifetime (T0.9's `seed.ts`, and later
+  the real app shell) should call `adapter.close()` on `pagehide` as cheap
+  insurance. This narrows the window but isn't a hard guarantee — the
+  `close()` RPC round-trip can still lose the race against an abrupt
+  reload. In repeated real-browser testing this was reliable in practice for
+  normal navigation; treat it as a mitigation, not a proof, and revisit if
+  M1+ sees real data loss reports.

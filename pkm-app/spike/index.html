@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>PKM — SQLite WASM + OPFS spike</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; }
+      button { margin: 0.25rem 0.5rem 0.25rem 0; }
+      pre { background: #f4f4f4; padding: 0.75rem; white-space: pre-wrap; }
+      .pass { color: #0a7a0a; }
+      .fail { color: #b00020; }
+    </style>
+  </head>
+  <body>
+    <h1>SQLite WASM + OPFS spike</h1>
+
+    <h2>Diagnostics</h2>
+    <pre id="diagnostics">loading...</pre>
+
+    <h2>Write / Reload / Read</h2>
+    <button id="write">Write note</button>
+    <button id="read">Read notes</button>
+    <p>Reload this page after writing to confirm data survives a reload.</p>
+    <pre id="notes"></pre>
+
+    <h2>Invariant checks</h2>
+    <button id="run-checks">Run checks (rollback, FK pragma, cascade delete)</button>
+    <pre id="checks"></pre>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -60,6 +60,18 @@ export class TagRepo {
     }
   }
 
+  async clearTaskTags(taskId: string): Promise<void> {
+    await this.conn.exec('DELETE FROM task_tags WHERE task_id = ?;', [taskId]);
+  }
+
+  async setTaskTags(taskId: string, tagNames: string[]): Promise<void> {
+    await this.clearTaskTags(taskId);
+    for (const name of tagNames) {
+      const tag = await this.upsertTag(name);
+      await this.bindTagToTask(taskId, tag.id);
+    }
+  }
+
   async clearNoteLinks(noteId: string): Promise<void> {
     await this.conn.exec('DELETE FROM note_links WHERE source_note_id = ?;', [noteId]);
   }
@@ -74,6 +86,17 @@ export class TagRepo {
         input.linkType ?? 'wiki',
         Date.now(),
       ],
+    );
+  }
+
+  async getBacklinks(noteId: string): Promise<Array<{ noteId: string; title: string | null }>> {
+    return this.conn.query<{ noteId: string; title: string | null }>(
+      `SELECT n.id AS noteId, n.title AS title
+       FROM note_links nl
+       JOIN notes n ON n.id = nl.source_note_id
+       WHERE nl.target_note_id = ?
+       ORDER BY n.updated_at DESC;`,
+      [noteId],
     );
   }
 }

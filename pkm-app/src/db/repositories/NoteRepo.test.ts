@@ -67,6 +67,14 @@ describe('NoteRepo', () => {
     expect(await repo.get('missing')).toBeUndefined();
   });
 
+  it('findByTitle() returns the note with that exact title, or undefined', async () => {
+    const { repo } = await createRepo();
+    await repo.create({ id: 'note-1', title: 'Project Alpha', markdown: 'body' });
+
+    expect(await repo.findByTitle('Project Alpha')).toMatchObject({ id: 'note-1' });
+    expect(await repo.findByTitle('Nope')).toBeUndefined();
+  });
+
   it('list() returns all notes ordered by updated_at desc', async () => {
     const { repo } = await createRepo();
     await repo.create({ id: 'note-1', markdown: 'first' });

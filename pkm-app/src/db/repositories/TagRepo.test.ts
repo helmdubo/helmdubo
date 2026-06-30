@@ -119,6 +119,38 @@ describe('TagRepo', () => {
     expect(rows.map((r) => r.name)).toEqual(['b', 'c']);
   });
 
+  it('setTaskTags() replaces a task\'s tags with exactly the given set', async () => {
+    const { repo, conn } = await createRepo();
+    await createTask(conn, 'task-1');
+    await repo.setTaskTags('task-1', ['urgent', 'finance']);
+    await repo.setTaskTags('task-1', ['finance', 'later']);
+
+    const rows = await conn.query<{ name: string }>(
+      'SELECT t.name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id WHERE tt.task_id = ? ORDER BY t.name;',
+      ['task-1'],
+    );
+    expect(rows.map((r) => r.name)).toEqual(['finance', 'later']);
+  });
+
+  it('getBacklinks() returns notes linking to the given note, most recently updated first', async () => {
+    const { repo, conn } = await createRepo();
+    await createNote(conn, 'target');
+    await createNote(conn, 'source-a');
+    await createNote(conn, 'source-b');
+    await repo.insertNoteLink({ sourceNoteId: 'source-a', rawTarget: 'Target', targetNoteId: 'target' });
+    await repo.insertNoteLink({ sourceNoteId: 'source-b', rawTarget: 'Target', targetNoteId: 'target' });
+
+    const backlinks = await repo.getBacklinks('target');
+    expect(backlinks.map((b) => b.noteId).sort()).toEqual(['source-a', 'source-b']);
+  });
+
+  it('getBacklinks() returns an empty array when nothing links to the note', async () => {
+    const { repo, conn } = await createRepo();
+    await createNote(conn, 'lonely');
+
+    expect(await repo.getBacklinks('lonely')).toEqual([]);
+  });
+
   it('insertNoteLink() and clearNoteLinks() manage note_links rows directly', async () => {
     const { repo, conn } = await createRepo();
     await createNote(conn, 'note-1');

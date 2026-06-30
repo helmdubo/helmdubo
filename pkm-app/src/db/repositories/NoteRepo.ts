@@ -60,6 +60,13 @@ export class NoteRepo {
     return rows.map(toNote);
   }
 
+  async findByTitle(title: string): Promise<Note | undefined> {
+    const rows = await this.conn.query<NoteRow>('SELECT * FROM notes WHERE title = ? LIMIT 1;', [
+      title,
+    ]);
+    return rows[0] ? toNote(rows[0]) : undefined;
+  }
+
   async update(id: string, input: UpdateNoteInput): Promise<Note> {
     const existing = await this.get(id);
     if (!existing) throw new Error(`NoteRepo.update: note not found: ${id}`);

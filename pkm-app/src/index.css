@@ -23,6 +23,48 @@
   padding: 1px 6px;
 }
 
+.cm-pkm-h1,
+.cm-pkm-h2,
+.cm-pkm-h3,
+.cm-pkm-h4,
+.cm-pkm-h5,
+.cm-pkm-h6 {
+  font-weight: 700;
+  line-height: 1.25;
+}
+.cm-pkm-h1 { font-size: 1.8em; }
+.cm-pkm-h2 { font-size: 1.5em; }
+.cm-pkm-h3 { font-size: 1.3em; }
+.cm-pkm-h4 { font-size: 1.15em; }
+.cm-pkm-h5 { font-size: 1.05em; }
+.cm-pkm-h6 { font-size: 1em; color: #555; }
+
+.cm-pkm-bold {
+  font-weight: 700;
+}
+
+.cm-pkm-italic {
+  font-style: italic;
+}
+
+.cm-pkm-strike {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.cm-pkm-inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #f0f0f0;
+  border-radius: 3px;
+  padding: 0 3px;
+}
+
+.cm-pkm-blockquote {
+  color: #555;
+  border-left: 3px solid #ccc;
+  padding-left: 0.5em;
+}
+
 .pkm-error-banner {
   position: fixed;
   top: 0;

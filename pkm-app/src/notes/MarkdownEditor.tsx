@@ -1,10 +1,11 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { EditorView, basicSetup } from 'codemirror';
-import { markdown } from '@codemirror/lang-markdown';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { taskRefExtension } from './taskRefExtension';
 import type { TaskWidgetHandlers } from './taskRefExtension';
 import { markupHighlightExtension } from './markupHighlightExtension';
 import { plainCheckboxExtension } from './plainCheckboxExtension';
+import { livePreviewExtension } from './livePreviewExtension';
 
 export interface MarkdownEditorProps {
   value: string;
@@ -77,12 +78,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         doc: value,
         extensions: [
           basicSetup,
-          markdown(),
+          markdown({ base: markdownLanguage }),
           taskRefExtension(stableTaskHandlers),
           markupHighlightExtension({
             onLinkClick: (rawTarget) => onNavigateToLinkRef.current?.(rawTarget),
           }),
           plainCheckboxExtension(),
+          livePreviewExtension(),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());

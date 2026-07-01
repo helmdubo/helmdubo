@@ -6,12 +6,15 @@ import type { TaskWidgetHandlers } from './taskRefExtension';
 import { markupHighlightExtension } from './markupHighlightExtension';
 import { plainCheckboxExtension } from './plainCheckboxExtension';
 import { livePreviewExtension } from './livePreviewExtension';
+import { selectionToolbarExtension } from './selectionToolbarExtension';
+import type { SelectionRect } from './selectionToolbarExtension';
 
 export interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
   taskHandlers?: TaskWidgetHandlers;
   onNavigateToLink?: (rawTarget: string) => void;
+  onSelectionChange?: (rect: SelectionRect | null) => void;
 }
 
 export interface MarkdownEditorHandle {
@@ -28,7 +31,7 @@ const noopTaskHandlers: TaskWidgetHandlers = {
 };
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
-  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink }, ref) {
+  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onSelectionChange }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const onChangeRef = useRef(onChange);
@@ -37,6 +40,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     taskHandlersRef.current = taskHandlers ?? noopTaskHandlers;
     const onNavigateToLinkRef = useRef(onNavigateToLink);
     onNavigateToLinkRef.current = onNavigateToLink;
+    const onSelectionChangeRef = useRef(onSelectionChange);
+    onSelectionChangeRef.current = onSelectionChange;
 
     useImperativeHandle(
       ref,
@@ -85,6 +90,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           }),
           plainCheckboxExtension(),
           livePreviewExtension(),
+          selectionToolbarExtension({
+            onSelectionChange: (rect) => onSelectionChangeRef.current?.(rect),
+          }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());

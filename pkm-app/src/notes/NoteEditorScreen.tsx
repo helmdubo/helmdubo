@@ -9,6 +9,7 @@ import { renderTaskRefLine } from './taskRef';
 import { Backlinks } from './Backlinks';
 import type { BacklinkEntry } from './Backlinks';
 import { resolveNoteLink } from './noteLabel';
+import type { SelectionRect } from './selectionToolbarExtension';
 
 export interface NoteEditorScreenProps {
   note: Note;
@@ -25,6 +26,7 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChange
   const [markdown, setMarkdown] = useState(note.markdown);
   const [saving, setSaving] = useState(false);
   const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
+  const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const titleRef = useRef(title);
   titleRef.current = title;
@@ -92,14 +94,12 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChange
     const editor = editorRef.current;
     if (!editor) return;
     const selected = editor.getSelectedText().trim();
-    if (!selected) {
-      window.alert('Select some text first to turn it into a task.');
-      return;
-    }
+    if (!selected) return;
     const { tasks } = await getAppStorage();
     const task = await tasks.createWithFirstRef(note.id, selected);
     const refLine = renderTaskRefLine({ checked: false, title: selected, taskId: task.id });
     const newMarkdown = editor.replaceSelection(refLine);
+    setSelectionRect(null);
     await persistMarkdown(newMarkdown);
   }
 
@@ -163,14 +163,27 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChange
         onChange={(e) => setTitle(e.target.value)}
       />
       <span className="save-status">{saving ? 'Saving…' : dirty ? 'Unsaved…' : 'Saved'}</span>
-      <button onClick={() => void handleCreateTask()}>Create task from selection</button>
       <MarkdownEditor
         ref={editorRef}
         value={markdown}
         onChange={setMarkdown}
         taskHandlers={taskHandlers}
         onNavigateToLink={(rawTarget) => void handleLinkClick(rawTarget)}
+        onSelectionChange={setSelectionRect}
       />
+      {selectionRect && (
+        <button
+          className="selection-toolbar"
+          style={{
+            top: selectionRect.top - 44,
+            left: (selectionRect.left + selectionRect.right) / 2,
+          }}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => void handleCreateTask()}
+        >
+          + Task
+        </button>
+      )}
       <Backlinks backlinks={backlinks} onOpen={onNavigateToNote} />
     </section>
   );

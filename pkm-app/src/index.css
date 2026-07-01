@@ -65,6 +65,20 @@
   padding-left: 0.5em;
 }
 
+.selection-toolbar {
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 100;
+  background: #222;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.4em 0.8em;
+  font-size: 0.85em;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
 .save-status {
   color: #888;
   font-size: 0.85em;

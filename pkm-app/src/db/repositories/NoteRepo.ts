@@ -61,10 +61,19 @@ export class NoteRepo {
   }
 
   async findByTitle(title: string): Promise<Note | undefined> {
-    const rows = await this.conn.query<NoteRow>('SELECT * FROM notes WHERE title = ? LIMIT 1;', [
-      title,
+    const trimmed = title.trim();
+    const exact = await this.conn.query<NoteRow>('SELECT * FROM notes WHERE title = ? LIMIT 1;', [
+      trimmed,
     ]);
-    return rows[0] ? toNote(rows[0]) : undefined;
+    if (exact[0]) return toNote(exact[0]);
+
+    // Case-insensitive/trimmed fallback: [[wiki links]] shouldn't fail to
+    // resolve just because casing or stray whitespace doesn't match exactly.
+    const loose = await this.conn.query<NoteRow>(
+      'SELECT * FROM notes WHERE TRIM(title) = ? COLLATE NOCASE LIMIT 1;',
+      [trimmed],
+    );
+    return loose[0] ? toNote(loose[0]) : undefined;
   }
 
   async update(id: string, input: UpdateNoteInput): Promise<Note> {

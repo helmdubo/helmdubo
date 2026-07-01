@@ -3,6 +3,7 @@ import { EditorView, basicSetup } from 'codemirror';
 import { markdown } from '@codemirror/lang-markdown';
 import { taskRefExtension } from './taskRefExtension';
 import type { TaskWidgetHandlers } from './taskRefExtension';
+import { markupHighlightExtension } from './markupHighlightExtension';
 
 export interface MarkdownEditorProps {
   value: string;
@@ -74,6 +75,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           basicSetup,
           markdown(),
           taskRefExtension(stableTaskHandlers),
+          markupHighlightExtension(),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());

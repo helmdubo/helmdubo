@@ -71,7 +71,12 @@ export function NotesApp({ jumpToNoteId }: NotesAppProps = {}) {
         onDelete={(id) => void handleDelete(id)}
       />
       {selectedNote ? (
-        <NoteEditorScreen note={selectedNote} onSave={handleSave} onNavigateToNote={setSelectedId} />
+        <NoteEditorScreen
+          key={selectedNote.id}
+          note={selectedNote}
+          onSave={handleSave}
+          onNavigateToNote={setSelectedId}
+        />
       ) : (
         <p>Select a note, or create a new one.</p>
       )}

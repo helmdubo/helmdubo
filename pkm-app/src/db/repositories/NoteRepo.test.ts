@@ -75,6 +75,13 @@ describe('NoteRepo', () => {
     expect(await repo.findByTitle('Nope')).toBeUndefined();
   });
 
+  it('findByTitle() falls back to a trimmed, case-insensitive match', async () => {
+    const { repo } = await createRepo();
+    await repo.create({ id: 'note-1', title: 'Project Alpha', markdown: 'body' });
+
+    expect(await repo.findByTitle('  project alpha  ')).toMatchObject({ id: 'note-1' });
+  });
+
   it('list() returns all notes ordered by updated_at desc', async () => {
     const { repo } = await createRepo();
     await repo.create({ id: 'note-1', markdown: 'first' });

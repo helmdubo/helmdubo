@@ -10,6 +10,8 @@ import { Backlinks } from './Backlinks';
 import type { BacklinkEntry } from './Backlinks';
 import { noteLabel, resolveNoteLink } from './noteLabel';
 import type { SelectionRect } from './selectionToolbarExtension';
+import type { MentionCandidate, MentionMatch } from './mentions';
+import type { MentionScreenPosition } from './mentionExtension';
 
 export interface NoteEditorScreenProps {
   note: Note;
@@ -36,6 +38,11 @@ export function NoteEditorScreen({
   const [saving, setSaving] = useState(false);
   const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
+  const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
+  const [mentionPopover, setMentionPopover] = useState<{
+    match: MentionMatch;
+    position: MentionScreenPosition;
+  } | null>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const titleRef = useRef(title);
   titleRef.current = title;
@@ -51,6 +58,66 @@ export function NoteEditorScreen({
       setBacklinks(await tags.getBacklinks(note.id));
     })();
   }, [note.id]);
+
+  /** Other notes' labels minus dismissed pairs — what the mention layer may
+   * highlight. Reloaded after every save (note.markdown changes once the
+   * parent reconciles), so decorations follow new notes/titles without a
+   * page reload. */
+  async function loadMentionCandidates() {
+    const { notes, tags } = await getAppStorage();
+    const dismissed = new Set(await tags.getDismissedSuggestionTargets(note.id));
+    const all = await notes.list();
+    setMentionCandidates(
+      all
+        .filter((other) => other.id !== note.id)
+        .map((other) => ({ noteId: other.id, title: noteLabel(other).trim() }))
+        .filter((candidate) => !dismissed.has(candidate.title)),
+    );
+  }
+
+  useEffect(() => {
+    void loadMentionCandidates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when this note's persisted content changes
+  }, [note.id, note.markdown]);
+
+  /** A popover pinned to stale click coordinates is worse than none — drop
+   * it as soon as the text underneath starts changing. */
+  function handleEditorChange(newMarkdown: string) {
+    if (mentionPopover) setMentionPopover(null);
+    setMarkdown(newMarkdown);
+  }
+
+  async function handleMentionLink() {
+    if (!mentionPopover) return;
+    const newMarkdown = editorRef.current?.materializeMention(mentionPopover.match);
+    setMentionPopover(null);
+    if (newMarkdown != null) await persistMarkdown(newMarkdown);
+  }
+
+  useEffect(() => {
+    if (!mentionPopover) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.closest('.mention-popover') || target.closest('.cm-pkm-mention'))
+      ) {
+        return;
+      }
+      setMentionPopover(null);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, [mentionPopover]);
+
+  async function handleMentionDismiss() {
+    if (!mentionPopover) return;
+    const { match } = mentionPopover;
+    setMentionPopover(null);
+    const { tags } = await getAppStorage();
+    await tags.dismissSuggestion(note.id, match.title);
+    await loadMentionCandidates();
+  }
 
   const dirty = title !== (note.title ?? '') || markdown !== note.markdown;
   const dirtyRef = useRef(dirty);
@@ -181,7 +248,7 @@ export function NoteEditorScreen({
       <MarkdownEditor
         ref={editorRef}
         value={markdown}
-        onChange={setMarkdown}
+        onChange={handleEditorChange}
         taskHandlers={taskHandlers}
         onNavigateToLink={(rawTarget) => void handleLinkClick(rawTarget)}
         onTagClick={onTagClick}
@@ -191,7 +258,22 @@ export function NoteEditorScreen({
           const all = await notes.list();
           return all.filter((n) => n.id !== note.id).map(noteLabel);
         }}
+        mentionCandidates={mentionCandidates}
+        onMentionClick={(match, position) => setMentionPopover({ match, position })}
       />
+      {mentionPopover && (
+        <div
+          className="mention-popover"
+          style={{ top: mentionPopover.position.y + 8, left: mentionPopover.position.x }}
+        >
+          <button onMouseDown={(e) => e.preventDefault()} onClick={() => void handleMentionLink()}>
+            Связать
+          </button>
+          <button onMouseDown={(e) => e.preventDefault()} onClick={() => void handleMentionDismiss()}>
+            Скрыть
+          </button>
+        </div>
+      )}
       {selectionRect && (
         // Docked to the bottom of the screen rather than positioned next to
         // the selection: the OS's native copy/paste toolbar always renders

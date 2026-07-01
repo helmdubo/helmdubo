@@ -10,6 +10,9 @@ import { selectionToolbarExtension } from './selectionToolbarExtension';
 import type { SelectionRect } from './selectionToolbarExtension';
 import { wikiAutocompleteExtension } from './wikiAutocompleteExtension';
 import type { NoteTitleProvider } from './wikiAutocompleteExtension';
+import { mentionExtension, setMentionCandidates } from './mentionExtension';
+import type { MentionScreenPosition } from './mentionExtension';
+import type { MentionCandidate, MentionMatch } from './mentions';
 
 export interface MarkdownEditorProps {
   value: string;
@@ -20,12 +23,19 @@ export interface MarkdownEditorProps {
   onSelectionChange?: (rect: SelectionRect | null) => void;
   /** Note titles offered by the [[ autocomplete; omit to disable it. */
   getNoteTitles?: NoteTitleProvider;
+  /** Unlinked-mention candidates to highlight; omit to disable mentions. */
+  mentionCandidates?: MentionCandidate[];
+  onMentionClick?: (match: MentionMatch, position: MentionScreenPosition) => void;
 }
 
 export interface MarkdownEditorHandle {
   getSelectedText: () => string;
   /** Replaces the current selection and returns the resulting full document text. */
   replaceSelection: (text: string) => string;
+  /** Wraps a mention occurrence in [[...]] in one transaction (delta §B.2
+   * «Связать») and returns the resulting full document text, or null if the
+   * document changed under the match since it was reported. */
+  materializeMention: (match: MentionMatch) => string | null;
 }
 
 const noopTaskHandlers: TaskWidgetHandlers = {
@@ -36,7 +46,7 @@ const noopTaskHandlers: TaskWidgetHandlers = {
 };
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
-  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onTagClick, onSelectionChange, getNoteTitles }, ref) {
+  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onTagClick, onSelectionChange, getNoteTitles, mentionCandidates, onMentionClick }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const onChangeRef = useRef(onChange);
@@ -51,6 +61,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     onSelectionChangeRef.current = onSelectionChange;
     const getNoteTitlesRef = useRef(getNoteTitles);
     getNoteTitlesRef.current = getNoteTitles;
+    const onMentionClickRef = useRef(onMentionClick);
+    onMentionClickRef.current = onMentionClick;
 
     useImperativeHandle(
       ref,
@@ -66,6 +78,18 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           if (!view) return '';
           const { from, to } = view.state.selection.main;
           view.dispatch({ changes: { from, to, insert: text } });
+          return view.state.doc.toString();
+        },
+        materializeMention: (match) => {
+          const view = viewRef.current;
+          if (!view) return null;
+          const occurrence = view.state.doc.sliceString(match.from, match.to);
+          // The match was captured at click time; refuse to wrap if edits
+          // have since shifted the text out from under it.
+          if (occurrence.toLowerCase() !== match.title.toLowerCase()) return null;
+          view.dispatch({
+            changes: { from: match.from, to: match.to, insert: `[[${occurrence}]]` },
+          });
           return view.state.doc.toString();
         },
       }),
@@ -101,6 +125,9 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           plainCheckboxExtension(),
           livePreviewExtension(),
           wikiAutocompleteExtension(async () => (await getNoteTitlesRef.current?.()) ?? []),
+          mentionExtension({
+            onMentionClick: (match, position) => onMentionClickRef.current?.(match, position),
+          }),
           selectionToolbarExtension({
             onSelectionChange: (rect) => onSelectionChangeRef.current?.(rect),
           }),
@@ -130,6 +157,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         changes: { from: 0, to: current.length, insert: value },
       });
     }, [value]);
+
+    useEffect(() => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.dispatch({ effects: setMentionCandidates.of(mentionCandidates ?? []) });
+    }, [mentionCandidates]);
 
     return <div ref={containerRef} className="markdown-editor" />;
   },

@@ -4,6 +4,7 @@ import { TagRepo } from './repositories/TagRepo';
 import { TaskRepo } from './repositories/TaskRepo';
 import { extractTags, extractWikiLinks, splitTitleAndTags } from '../notes/parser';
 import { findTaskRefLines } from '../notes/taskRef';
+import { resolveNoteLink } from '../notes/noteLabel';
 
 /**
  * Rebuilds the derived indexes (note_tags, note_links, task_tags, and
@@ -27,7 +28,7 @@ export async function rebuildNoteDerivedIndex(conn: StorageConnection, noteId: s
 
   await tags.clearNoteLinks(noteId);
   for (const rawTarget of extractWikiLinks(note.markdown)) {
-    const target = await notes.findByTitle(rawTarget);
+    const target = await resolveNoteLink(notes, rawTarget);
     await tags.insertNoteLink({ sourceNoteId: noteId, rawTarget, targetNoteId: target?.id ?? null });
   }
 

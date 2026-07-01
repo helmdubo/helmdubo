@@ -1,4 +1,5 @@
 import type { Note } from '../db/repositories';
+import { noteLabel } from './noteLabel';
 
 export interface NotesListProps {
   notes: Note[];
@@ -6,12 +7,6 @@ export interface NotesListProps {
   onSelect: (id: string) => void;
   onCreate: () => void;
   onDelete: (id: string) => void;
-}
-
-function noteLabel(note: Note): string {
-  if (note.title) return note.title;
-  const firstLine = note.markdown.split('\n').find((line) => line.trim().length > 0);
-  return firstLine?.trim() || 'Untitled note';
 }
 
 export function NotesList({ notes, selectedId, onSelect, onCreate, onDelete }: NotesListProps) {

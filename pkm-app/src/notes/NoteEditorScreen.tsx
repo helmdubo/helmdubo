@@ -8,6 +8,7 @@ import type { TaskWidgetHandlers } from './taskRefExtension';
 import { renderTaskRefLine } from './taskRef';
 import { Backlinks } from './Backlinks';
 import type { BacklinkEntry } from './Backlinks';
+import { resolveNoteLink } from './noteLabel';
 
 export interface NoteEditorScreenProps {
   note: Note;
@@ -76,7 +77,7 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChange
 
   async function handleLinkClick(rawTarget: string) {
     const { adapter, notes } = await getAppStorage();
-    let target = await notes.findByTitle(rawTarget);
+    let target = await resolveNoteLink(notes, rawTarget);
     if (!target) {
       target = await notes.create({ id: crypto.randomUUID(), title: rawTarget, markdown: '' });
       // The link in this note was a frontier link (target_note_id=NULL) until

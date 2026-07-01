@@ -78,6 +78,20 @@ describe('rebuildNoteDerivedIndex', () => {
     ]);
   });
 
+  it('resolves a wiki link to an untitled note by its displayed label (first markdown line)', async () => {
+    const { conn, notes } = await setup();
+    await notes.create({ id: 'target', markdown: 'My Untitled Content Note\nsome body text' });
+    await notes.create({ id: 'n1', markdown: 'link to [[My Untitled Content Note]]' });
+
+    await rebuildNoteDerivedIndex(conn, 'n1');
+
+    const rows = await conn.query<{ target_note_id: string | null }>(
+      'SELECT target_note_id FROM note_links WHERE source_note_id = ?;',
+      ['n1'],
+    );
+    expect(rows[0]?.target_note_id).toBe('target');
+  });
+
   it('re-running clears and rebuilds tags/links instead of accumulating duplicates', async () => {
     const { conn, notes } = await setup();
     await notes.create({ id: 'n1', markdown: '#a [[Link]]' });

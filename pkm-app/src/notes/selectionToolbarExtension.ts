@@ -17,7 +17,12 @@ export interface SelectionToolbarHandlers {
 
 /** Reports the current selection's screen position (or null once it's
  * empty) so a host component can render a floating action button next to
- * it, instead of a permanently-visible toolbar button. */
+ * it, instead of a permanently-visible toolbar button. Tracked through
+ * CM6's own update cycle (rather than the native `selectionchange` event)
+ * so the toolbar correctly disappears once a transaction collapses the
+ * selection — e.g. right after "create task" replaces the selected text
+ * with an atomic task-ref widget, whose DOM the native browser Selection
+ * object can otherwise end up parked inside. */
 export function selectionToolbarExtension(handlers: SelectionToolbarHandlers): Extension {
   return EditorView.updateListener.of((update) => {
     if (!update.selectionSet && !update.docChanged && !update.viewportChanged) return;

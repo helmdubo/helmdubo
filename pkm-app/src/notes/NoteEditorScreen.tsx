@@ -175,7 +175,10 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChange
         <button
           className="selection-toolbar"
           style={{
-            top: selectionRect.top - 44,
+            // Below the selection, not above: on Android/iOS the OS's own
+            // copy/paste action bar renders directly above selected text,
+            // and would otherwise sit on top of (and hide) this button.
+            top: selectionRect.bottom + 12,
             left: (selectionRect.left + selectionRect.right) / 2,
           }}
           onMouseDown={(e) => e.preventDefault()}

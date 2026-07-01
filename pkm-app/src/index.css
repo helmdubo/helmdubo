@@ -68,13 +68,14 @@
 .selection-toolbar {
   position: fixed;
   transform: translateX(-50%);
-  z-index: 100;
+  z-index: 1000;
   background: #222;
   color: #fff;
   border: none;
   border-radius: 6px;
-  padding: 0.4em 0.8em;
-  font-size: 0.85em;
+  padding: 0.6em 1em;
+  min-height: 2.2em;
+  font-size: 0.9em;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   cursor: pointer;
 }

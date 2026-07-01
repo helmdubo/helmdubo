@@ -73,21 +73,51 @@ function buildDecorations(view: EditorView): DecorationSet {
   return builder.finish();
 }
 
-export function markupHighlightExtension(): Extension {
-  return ViewPlugin.fromClass(
-    class {
-      decorations: DecorationSet;
+export interface MarkupHighlightHandlers {
+  onLinkClick?: (rawTarget: string) => void;
+}
 
-      constructor(view: EditorView) {
-        this.decorations = buildDecorations(view);
+function linkClickHandler(handlers: MarkupHighlightHandlers): Extension {
+  return EditorView.domEventHandlers({
+    mousedown(event, view) {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || !target.classList.contains('cm-pkm-link')) {
+        return false;
       }
-
-      update(update: ViewUpdate) {
-        if (update.docChanged) {
-          this.decorations = buildDecorations(update.view);
+      const pos = view.posAtDOM(target);
+      const doc = view.state.doc.toString();
+      for (const match of doc.matchAll(LINK_RE)) {
+        const from = match.index ?? 0;
+        const to = from + match[0].length;
+        if (pos >= from && pos <= to) {
+          const rawTarget = match[1]?.trim();
+          if (rawTarget) handlers.onLinkClick?.(rawTarget);
+          return true;
         }
       }
+      return false;
     },
-    { decorations: (plugin) => plugin.decorations },
-  );
+  });
+}
+
+export function markupHighlightExtension(handlers: MarkupHighlightHandlers = {}): Extension {
+  return [
+    ViewPlugin.fromClass(
+      class {
+        decorations: DecorationSet;
+
+        constructor(view: EditorView) {
+          this.decorations = buildDecorations(view);
+        }
+
+        update(update: ViewUpdate) {
+          if (update.docChanged) {
+            this.decorations = buildDecorations(update.view);
+          }
+        }
+      },
+      { decorations: (plugin) => plugin.decorations },
+    ),
+    linkClickHandler(handlers),
+  ];
 }

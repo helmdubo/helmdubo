@@ -4,11 +4,13 @@ import { markdown } from '@codemirror/lang-markdown';
 import { taskRefExtension } from './taskRefExtension';
 import type { TaskWidgetHandlers } from './taskRefExtension';
 import { markupHighlightExtension } from './markupHighlightExtension';
+import { plainCheckboxExtension } from './plainCheckboxExtension';
 
 export interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
   taskHandlers?: TaskWidgetHandlers;
+  onNavigateToLink?: (rawTarget: string) => void;
 }
 
 export interface MarkdownEditorHandle {
@@ -25,13 +27,15 @@ const noopTaskHandlers: TaskWidgetHandlers = {
 };
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
-  function MarkdownEditor({ value, onChange, taskHandlers }, ref) {
+  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const onChangeRef = useRef(onChange);
     onChangeRef.current = onChange;
     const taskHandlersRef = useRef(taskHandlers ?? noopTaskHandlers);
     taskHandlersRef.current = taskHandlers ?? noopTaskHandlers;
+    const onNavigateToLinkRef = useRef(onNavigateToLink);
+    onNavigateToLinkRef.current = onNavigateToLink;
 
     useImperativeHandle(
       ref,
@@ -75,7 +79,10 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           basicSetup,
           markdown(),
           taskRefExtension(stableTaskHandlers),
-          markupHighlightExtension(),
+          markupHighlightExtension({
+            onLinkClick: (rawTarget) => onNavigateToLinkRef.current?.(rawTarget),
+          }),
+          plainCheckboxExtension(),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) {
               onChangeRef.current(update.state.doc.toString());

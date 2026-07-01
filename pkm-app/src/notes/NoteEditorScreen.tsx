@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Note } from '../db/repositories';
 import { getAppStorage } from '../app/storage';
+import { rebuildNoteDerivedIndex } from '../db/reconcile';
 import { MarkdownEditor } from './MarkdownEditor';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
 import type { TaskWidgetHandlers } from './taskRefExtension';
@@ -12,9 +13,13 @@ export interface NoteEditorScreenProps {
   note: Note;
   onSave: (input: { title: string | null; markdown: string }) => Promise<void>;
   onNavigateToNote: (noteId: string) => void;
+  /** Re-fetches the notes list; must resolve before navigating to a note
+   * that didn't exist in that list yet (e.g. one just created via a
+   * frontier [[wiki link]] click). */
+  onNotesChanged: () => Promise<void>;
 }
 
-export function NoteEditorScreen({ note, onSave, onNavigateToNote }: NoteEditorScreenProps) {
+export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChanged }: NoteEditorScreenProps) {
   const [title, setTitle] = useState(note.title ?? '');
   const [markdown, setMarkdown] = useState(note.markdown);
   const [saving, setSaving] = useState(false);
@@ -69,6 +74,22 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote }: NoteEditorS
     await persistMarkdown(newMarkdown);
   }
 
+  async function handleLinkClick(rawTarget: string) {
+    const { adapter, notes } = await getAppStorage();
+    let target = await notes.findByTitle(rawTarget);
+    if (!target) {
+      target = await notes.create({ id: crypto.randomUUID(), title: rawTarget, markdown: '' });
+      // The link in this note was a frontier link (target_note_id=NULL) until
+      // just now; re-reconcile so it points at the note we just created.
+      await rebuildNoteDerivedIndex(adapter, note.id);
+    }
+    // The parent's notes list must include the (possibly just-created) target
+    // before we select it, or selectedNote resolves to null and the
+    // placeholder renders instead of navigating anywhere.
+    await onNotesChanged();
+    onNavigateToNote(target.id);
+  }
+
   const taskHandlers: TaskWidgetHandlers = {
     onToggle: (taskId, checked, newMarkdown) => {
       void (async () => {
@@ -116,7 +137,13 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote }: NoteEditorS
         {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
       </button>
       <button onClick={() => void handleCreateTask()}>Create task from selection</button>
-      <MarkdownEditor ref={editorRef} value={markdown} onChange={setMarkdown} taskHandlers={taskHandlers} />
+      <MarkdownEditor
+        ref={editorRef}
+        value={markdown}
+        onChange={setMarkdown}
+        taskHandlers={taskHandlers}
+        onNavigateToLink={(rawTarget) => void handleLinkClick(rawTarget)}
+      />
       <Backlinks backlinks={backlinks} onOpen={onNavigateToNote} />
     </section>
   );

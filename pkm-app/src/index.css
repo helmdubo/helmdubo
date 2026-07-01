@@ -10,6 +10,8 @@
   background: #f1e9fb;
   border-radius: 3px;
   padding: 0 2px;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .task-ref-widget {

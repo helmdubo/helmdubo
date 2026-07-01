@@ -76,6 +76,7 @@ export function NotesApp({ jumpToNoteId }: NotesAppProps = {}) {
           note={selectedNote}
           onSave={handleSave}
           onNavigateToNote={setSelectedId}
+          onNotesChanged={refresh}
         />
       ) : (
         <p>Select a note, or create a new one.</p>

@@ -25,4 +25,24 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // INV-5: all data access goes through StorageAdapter. Only the storage
+    // layer itself (and unit tests, which build throwaway in-memory
+    // connections) may touch sqlite directly.
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/storage/**', 'src/**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: '@sqlite.org/sqlite-wasm',
+              message: 'INV-5: import sqlite only inside src/storage; everything else goes through StorageAdapter/repositories.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

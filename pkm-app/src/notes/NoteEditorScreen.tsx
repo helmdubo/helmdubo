@@ -172,15 +172,14 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChange
         onSelectionChange={setSelectionRect}
       />
       {selectionRect && (
+        // Docked to the bottom of the screen rather than positioned next to
+        // the selection: the OS's native copy/paste toolbar always renders
+        // right next to the selected text, and there's no web API to
+        // suppress that system-level overlay. Anchoring somewhere it never
+        // reaches (instead of chasing its position) is the only reliable
+        // way to keep the two from competing for the same tap.
         <button
           className="selection-toolbar"
-          style={{
-            // Below the selection, not above: on Android/iOS the OS's own
-            // copy/paste action bar renders directly above selected text,
-            // and would otherwise sit on top of (and hide) this button.
-            top: selectionRect.bottom + 12,
-            left: (selectionRect.left + selectionRect.right) / 2,
-          }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => void handleCreateTask()}
         >

@@ -94,8 +94,11 @@ class TaskRefWidget extends WidgetType {
       void (async () => {
         const proceed = await handlers.onRequestDeleteRef(taskId, title);
         if (!proceed) return;
-        const plainLine = `- [${checked ? 'x' : ' '}] ${title}`;
-        dispatchInternalChange(view, from, to, plainLine);
+        // Per brief §8.6: removing a ref turns the ref-line back into
+        // ordinary text — not a plain checkbox line, which would still
+        // render as a checkbox widget and leave the note looking like the
+        // task is still there in some form.
+        dispatchInternalChange(view, from, to, title);
         handlers.onDeleteRefApplied(taskId, view.state.doc.toString());
       })();
     });

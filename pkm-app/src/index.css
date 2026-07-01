@@ -67,6 +67,8 @@
 
 .selection-toolbar {
   position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom, 16px));
   transform: translateX(-50%);
   z-index: 1000;
   background: #222;

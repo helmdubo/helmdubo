@@ -20,6 +20,9 @@ export interface MarkdownEditorProps {
 
 export interface MarkdownEditorHandle {
   getSelectedText: () => string;
+  /** The primary selection's character range and text, for domain operations
+   * that must build the resulting markdown themselves (e.g. create-task). */
+  getSelection: () => { from: number; to: number; text: string };
   /** Replaces the current selection and returns the resulting full document text. */
   replaceSelection: (text: string) => string;
 }
@@ -54,6 +57,12 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           if (!view) return '';
           const { from, to } = view.state.selection.main;
           return view.state.doc.sliceString(from, to);
+        },
+        getSelection: () => {
+          const view = viewRef.current;
+          if (!view) return { from: 0, to: 0, text: '' };
+          const { from, to } = view.state.selection.main;
+          return { from, to, text: view.state.doc.sliceString(from, to) };
         },
         replaceSelection: (text: string) => {
           const view = viewRef.current;

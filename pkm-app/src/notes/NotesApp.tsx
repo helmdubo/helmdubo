@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { Note } from '../db/repositories';
 import { getAppStorage } from '../app/storage';
-import { rebuildNoteDerivedIndex } from '../db/reconcile';
+import {
+  saveNoteWithReconcile,
+  deleteNoteWithTaskLifecycle,
+  canonicalizeTaskRefLinesInNote,
+} from '../db/noteLifecycle';
 import { NotesList } from './NotesList';
 import { NoteEditorScreen } from './NoteEditorScreen';
 
@@ -46,6 +50,18 @@ export function NotesApp({ jumpToNoteId, refreshToken, active = true, onTagClick
     if (jumpToNoteId) setSelectedId(jumpToNoteId);
   }, [jumpToNoteId]);
 
+  // When a note is opened, catch its task-ref lines up to their canonical task
+  // objects once (brief §8.5 MVP). Only refreshes if something actually
+  // changed, so ordinary opens don't churn the list or write note_revisions.
+  useEffect(() => {
+    if (!selectedId) return;
+    void (async () => {
+      const { adapter } = await getAppStorage();
+      const result = await canonicalizeTaskRefLinesInNote(adapter, selectedId);
+      if (result.ok && result.value?.changed) await refresh();
+    })();
+  }, [selectedId]);
+
   async function handleCreate() {
     const { notes: noteRepo } = await getAppStorage();
     const note = await noteRepo.create({ id: crypto.randomUUID(), markdown: '' });
@@ -60,17 +76,34 @@ export function NotesApp({ jumpToNoteId, refreshToken, active = true, onTagClick
   }
 
   async function handleDelete(id: string) {
-    const { notes: noteRepo } = await getAppStorage();
-    await noteRepo.delete(id);
+    const { adapter } = await getAppStorage();
+    const result = await deleteNoteWithTaskLifecycle(adapter, id);
+    if (!result.ok) {
+      const titles = result.tasks.map((t) => `«${t.title}»`).join(', ');
+      const proceed = window.confirm(
+        `Удаление заметки удалит задачи без других ссылок: ${titles}. Продолжить?`,
+      );
+      if (!proceed) return;
+      await deleteNoteWithTaskLifecycle(adapter, id, { confirmed: true });
+    }
     if (selectedId === id) setSelectedId(null);
     await refresh();
   }
 
   async function handleSave(input: { title: string | null; markdown: string }) {
     if (!selectedId) return;
-    const { adapter, notes: noteRepo } = await getAppStorage();
-    await noteRepo.update(selectedId, input);
-    await rebuildNoteDerivedIndex(adapter, selectedId);
+    const { adapter } = await getAppStorage();
+    const result = await saveNoteWithReconcile(adapter, selectedId, input);
+    // In practice the ref-line protection filter stops typing from removing an
+    // anchor, so this branch is a safety net: if a save would orphan a task's
+    // last ref, confirm before committing rather than silently deleting it.
+    if (!result.ok) {
+      const titles = result.tasks.map((t) => `«${t.title}»`).join(', ');
+      const proceed = window.confirm(
+        `Сохранение удалит задачи без ссылок: ${titles}. Продолжить?`,
+      );
+      if (proceed) await saveNoteWithReconcile(adapter, selectedId, input, { confirmed: true });
+    }
     await refresh();
   }
 

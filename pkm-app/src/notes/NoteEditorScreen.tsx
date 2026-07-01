@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Note } from '../db/repositories';
 import { getAppStorage } from '../app/storage';
 import { rebuildNoteDerivedIndex } from '../db/reconcile';
+import { createTaskRefInNote, removeTaskRefFromNote } from '../db/noteLifecycle';
 import { MarkdownEditor } from './MarkdownEditor';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
 import type { TaskWidgetHandlers } from './taskRefExtension';
@@ -102,14 +103,26 @@ export function NoteEditorScreen({
   async function handleCreateTask() {
     const editor = editorRef.current;
     if (!editor) return;
-    const selected = editor.getSelectedText().trim();
-    if (!selected) return;
-    const { tasks } = await getAppStorage();
-    const task = await tasks.createWithFirstRef(note.id, selected);
-    const refLine = renderTaskRefLine({ checked: false, title: selected, taskId: task.id });
-    const newMarkdown = editor.replaceSelection(refLine);
+    const selection = editor.getSelection();
+    const title = selection.text.trim();
+    if (!title) return;
+    const { adapter } = await getAppStorage();
+    // The domain layer creates the task, ref-line and reconciled indexes in one
+    // transaction — nothing is left behind if the save fails (brief §8.3).
+    const result = await createTaskRefInNote(adapter, note.id, {
+      title,
+      markdown: markdownRef.current,
+      selectionFrom: selection.from,
+      selectionTo: selection.to,
+    });
     setSelectionRect(null);
-    await persistMarkdown(newMarkdown);
+    if (!result.ok || !result.value) return;
+    // Reflect the canonical result in the editor via a normal selection
+    // replacement (the range was plain text, so it isn't blocked by the
+    // ref-line protection filter), then refresh the parent list.
+    const refLine = renderTaskRefLine({ checked: false, title, taskId: result.value.taskId });
+    editor.replaceSelection(refLine);
+    await onNotesChanged();
   }
 
   async function handleLinkClick(rawTarget: string) {
@@ -151,14 +164,16 @@ export function NoteEditorScreen({
       }
       return true;
     },
-    onDeleteRefApplied: (taskId, newMarkdown) => {
+    onDeleteRefApplied: (taskId) => {
       void (async () => {
-        const { tasks } = await getAppStorage();
-        const remaining = await tasks.removeRef(taskId, note.id);
-        if (remaining === 0) {
-          await tasks.delete(taskId);
-        }
-        await persistMarkdown(newMarkdown);
+        const { adapter } = await getAppStorage();
+        // Confirmation (if the ref was the task's last) already happened in
+        // onRequestDeleteRef above, so commit with confirmed: true. The domain
+        // op re-derives the plain-text rewrite from the stored markdown — which
+        // matches what the widget just dispatched — snapshots a note_revision,
+        // and deletes the task if this was its last ref (brief §8.6).
+        await removeTaskRefFromNote(adapter, note.id, taskId, { confirmed: true });
+        await onNotesChanged();
       })();
     },
   };

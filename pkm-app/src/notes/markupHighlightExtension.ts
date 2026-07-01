@@ -81,10 +81,12 @@ function linkClickHandler(handlers: MarkupHighlightHandlers): Extension {
   return EditorView.domEventHandlers({
     mousedown(event, view) {
       const target = event.target;
-      if (!(target instanceof HTMLElement) || !target.classList.contains('cm-pkm-link')) {
-        return false;
-      }
-      const pos = view.posAtDOM(target);
+      // event.target is usually one of CM6's own nested syntax-highlighting
+      // spans (e.g. for the "[[" / "]]" tokens), not the .cm-pkm-link span
+      // itself, so this must walk up to find it rather than check directly.
+      const linkEl = target instanceof HTMLElement ? target.closest('.cm-pkm-link') : null;
+      if (!linkEl) return false;
+      const pos = view.posAtDOM(linkEl);
       const doc = view.state.doc.toString();
       for (const match of doc.matchAll(LINK_RE)) {
         const from = match.index ?? 0;

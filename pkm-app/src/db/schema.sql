@@ -72,6 +72,16 @@ CREATE TABLE IF NOT EXISTS note_links (
   PRIMARY KEY (source_note_id, raw_target)
 );
 
+-- v2: user state (not a derived index) — pairs the user asked to stop
+-- suggesting. Keyed by raw_target so renaming the target note revives the
+-- suggestion (new title = new pair), per delta §C.
+CREATE TABLE IF NOT EXISTS link_suggestion_dismissals (
+  source_note_id TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  raw_target     TEXT NOT NULL,
+  created_at     INTEGER NOT NULL,
+  PRIMARY KEY (source_note_id, raw_target)
+);
+
 CREATE INDEX IF NOT EXISTS idx_task_refs_note   ON task_refs(note_id);
 CREATE INDEX IF NOT EXISTS idx_subtasks_task    ON subtasks(task_id);
 CREATE INDEX IF NOT EXISTS idx_note_links_src   ON note_links(source_note_id);

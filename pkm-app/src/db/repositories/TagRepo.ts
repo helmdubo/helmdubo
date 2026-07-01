@@ -97,6 +97,28 @@ export class TagRepo {
     );
   }
 
+  async getDismissedSuggestionTargets(noteId: string): Promise<string[]> {
+    const rows = await this.conn.query<{ raw_target: string }>(
+      'SELECT raw_target FROM link_suggestion_dismissals WHERE source_note_id = ?;',
+      [noteId],
+    );
+    return rows.map((r) => r.raw_target);
+  }
+
+  /** Persistently hides an unlinked-mention suggestion (delta §B.2 "Скрыть").
+   * Also drops the current suggested index row so the change is visible
+   * without waiting for the next reconcile. */
+  async dismissSuggestion(noteId: string, rawTarget: string): Promise<void> {
+    await this.conn.exec(
+      'INSERT OR IGNORE INTO link_suggestion_dismissals (source_note_id, raw_target, created_at) VALUES (?, ?, ?);',
+      [noteId, rawTarget, Date.now()],
+    );
+    await this.conn.exec(
+      "DELETE FROM note_links WHERE source_note_id = ? AND raw_target = ? AND link_type = 'suggested';",
+      [noteId, rawTarget],
+    );
+  }
+
   async getBacklinks(noteId: string): Promise<Array<{ noteId: string; title: string | null }>> {
     return this.conn.query<{ noteId: string; title: string | null }>(
       `SELECT n.id AS noteId, n.title AS title

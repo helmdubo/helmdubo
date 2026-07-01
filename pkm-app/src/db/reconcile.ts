@@ -4,7 +4,8 @@ import { TagRepo } from './repositories/TagRepo';
 import { TaskRepo } from './repositories/TaskRepo';
 import { extractTags, extractWikiLinks, splitTitleAndTags } from '../notes/parser';
 import { findTaskRefLines } from '../notes/taskRef';
-import { resolveNoteLink } from '../notes/noteLabel';
+import { findMentions } from '../notes/mentions';
+import { noteLabel, resolveNoteLink } from '../notes/noteLabel';
 
 /**
  * Rebuilds the derived indexes (note_tags, note_links, task_tags, and
@@ -30,6 +31,28 @@ export async function rebuildNoteDerivedIndex(conn: StorageConnection, noteId: s
   for (const rawTarget of extractWikiLinks(note.markdown)) {
     const target = await resolveNoteLink(notes, rawTarget);
     await tags.insertNoteLink({ sourceNoteId: noteId, rawTarget, targetNoteId: target?.id ?? null });
+  }
+
+  // Unlinked mentions (delta §B.2): other notes' titles appearing in this
+  // note's prose become link_type='suggested' rows. Wiki links were inserted
+  // first, so the (source, raw_target) primary key + INSERT OR IGNORE makes
+  // an explicit [[link]] always win over a suggestion for the same target.
+  // Never touches note.markdown (INV-9) — this is index + highlight only.
+  const dismissed = new Set(await tags.getDismissedSuggestionTargets(noteId));
+  const candidates = (await notes.list())
+    .filter((other) => other.id !== noteId)
+    .map((other) => ({ noteId: other.id, title: noteLabel(other).trim() }))
+    .filter((candidate) => !dismissed.has(candidate.title));
+  const suggestedNoteIds = new Set<string>();
+  for (const mention of findMentions(note.markdown, candidates)) {
+    if (suggestedNoteIds.has(mention.noteId)) continue; // unique edges, not occurrences
+    suggestedNoteIds.add(mention.noteId);
+    await tags.insertNoteLink({
+      sourceNoteId: noteId,
+      rawTarget: mention.title,
+      targetNoteId: mention.noteId,
+      linkType: 'suggested',
+    });
   }
 
   for (const refLine of findTaskRefLines(note.markdown)) {

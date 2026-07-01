@@ -8,7 +8,7 @@ import type { TaskWidgetHandlers } from './taskRefExtension';
 import { renderTaskRefLine } from './taskRef';
 import { Backlinks } from './Backlinks';
 import type { BacklinkEntry } from './Backlinks';
-import { resolveNoteLink } from './noteLabel';
+import { noteLabel, resolveNoteLink } from './noteLabel';
 import type { SelectionRect } from './selectionToolbarExtension';
 
 export interface NoteEditorScreenProps {
@@ -116,10 +116,16 @@ export function NoteEditorScreen({
     const { adapter, notes } = await getAppStorage();
     let target = await resolveNoteLink(notes, rawTarget);
     if (!target) {
+      // Frontier link (delta §B.1): the target doesn't exist yet — creating
+      // it is an explicit user action, not an automatic side effect.
+      if (!window.confirm(`Создать заметку «${rawTarget}»?`)) return;
       target = await notes.create({ id: crypto.randomUUID(), title: rawTarget, markdown: '' });
       // The link in this note was a frontier link (target_note_id=NULL) until
-      // just now; re-reconcile so it points at the note we just created.
+      // just now; re-reconcile both sides so it points at the note we just
+      // created (the new note's own derived index is trivially empty, but
+      // reconciling it keeps the invariant unconditional).
       await rebuildNoteDerivedIndex(adapter, note.id);
+      await rebuildNoteDerivedIndex(adapter, target.id);
     }
     // The parent's notes list must include the (possibly just-created) target
     // before we select it, or selectedNote resolves to null and the
@@ -180,6 +186,11 @@ export function NoteEditorScreen({
         onNavigateToLink={(rawTarget) => void handleLinkClick(rawTarget)}
         onTagClick={onTagClick}
         onSelectionChange={setSelectionRect}
+        getNoteTitles={async () => {
+          const { notes } = await getAppStorage();
+          const all = await notes.list();
+          return all.filter((n) => n.id !== note.id).map(noteLabel);
+        }}
       />
       {selectionRect && (
         // Docked to the bottom of the screen rather than positioned next to

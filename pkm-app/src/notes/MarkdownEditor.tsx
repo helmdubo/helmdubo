@@ -8,6 +8,8 @@ import { plainCheckboxExtension } from './plainCheckboxExtension';
 import { livePreviewExtension } from './livePreviewExtension';
 import { selectionToolbarExtension } from './selectionToolbarExtension';
 import type { SelectionRect } from './selectionToolbarExtension';
+import { wikiAutocompleteExtension } from './wikiAutocompleteExtension';
+import type { NoteTitleProvider } from './wikiAutocompleteExtension';
 
 export interface MarkdownEditorProps {
   value: string;
@@ -16,6 +18,8 @@ export interface MarkdownEditorProps {
   onNavigateToLink?: (rawTarget: string) => void;
   onTagClick?: (tagName: string) => void;
   onSelectionChange?: (rect: SelectionRect | null) => void;
+  /** Note titles offered by the [[ autocomplete; omit to disable it. */
+  getNoteTitles?: NoteTitleProvider;
 }
 
 export interface MarkdownEditorHandle {
@@ -32,7 +36,7 @@ const noopTaskHandlers: TaskWidgetHandlers = {
 };
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
-  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onTagClick, onSelectionChange }, ref) {
+  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onTagClick, onSelectionChange, getNoteTitles }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const onChangeRef = useRef(onChange);
@@ -45,6 +49,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     onTagClickRef.current = onTagClick;
     const onSelectionChangeRef = useRef(onSelectionChange);
     onSelectionChangeRef.current = onSelectionChange;
+    const getNoteTitlesRef = useRef(getNoteTitles);
+    getNoteTitlesRef.current = getNoteTitles;
 
     useImperativeHandle(
       ref,
@@ -94,6 +100,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           }),
           plainCheckboxExtension(),
           livePreviewExtension(),
+          wikiAutocompleteExtension(async () => (await getNoteTitlesRef.current?.()) ?? []),
           selectionToolbarExtension({
             onSelectionChange: (rect) => onSelectionChangeRef.current?.(rect),
           }),

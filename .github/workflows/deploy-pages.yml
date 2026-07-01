@@ -1,5 +1,10 @@
 # Deploys the PKM app to GitHub Pages so it can be opened from any device
-# (e.g. an Android phone browser).
+# (e.g. an Android phone browser): https://helmdubo.github.io/helmdubo/
+#
+# This repo's Pages is configured in "deploy from branch" mode serving the
+# gh-pages branch, so the workflow publishes the build by pushing to that
+# branch (actions/deploy-pages requires the "GitHub Actions" source mode and
+# fails here — see run #1 of this workflow).
 #
 # Note on headers: GitHub Pages cannot send COOP/COEP, so the app runs
 # without cross-origin isolation there. That's fine — storage uses the OPFS
@@ -13,16 +18,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,20 +40,10 @@ jobs:
       - name: Build (base path = /<repo>/ for project pages)
         working-directory: pkm-app
         run: npm run build -- --base=/${{ github.event.repository.name }}/
-      - name: Configure Pages (enables Pages on first run)
-        uses: actions/configure-pages@v5
+      - name: Publish to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: pkm-app/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: pkm-app/dist
+          publish_branch: gh-pages
+          enable_jekyll: false

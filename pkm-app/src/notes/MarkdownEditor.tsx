@@ -14,6 +14,7 @@ export interface MarkdownEditorProps {
   onChange: (value: string) => void;
   taskHandlers?: TaskWidgetHandlers;
   onNavigateToLink?: (rawTarget: string) => void;
+  onTagClick?: (tagName: string) => void;
   onSelectionChange?: (rect: SelectionRect | null) => void;
 }
 
@@ -31,7 +32,7 @@ const noopTaskHandlers: TaskWidgetHandlers = {
 };
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
-  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onSelectionChange }, ref) {
+  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onTagClick, onSelectionChange }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const onChangeRef = useRef(onChange);
@@ -40,6 +41,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     taskHandlersRef.current = taskHandlers ?? noopTaskHandlers;
     const onNavigateToLinkRef = useRef(onNavigateToLink);
     onNavigateToLinkRef.current = onNavigateToLink;
+    const onTagClickRef = useRef(onTagClick);
+    onTagClickRef.current = onTagClick;
     const onSelectionChangeRef = useRef(onSelectionChange);
     onSelectionChangeRef.current = onSelectionChange;
 
@@ -87,6 +90,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           taskRefExtension(stableTaskHandlers),
           markupHighlightExtension({
             onLinkClick: (rawTarget) => onNavigateToLinkRef.current?.(rawTarget),
+            onTagClick: (tagName) => onTagClickRef.current?.(tagName),
           }),
           plainCheckboxExtension(),
           livePreviewExtension(),

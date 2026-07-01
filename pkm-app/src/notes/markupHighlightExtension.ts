@@ -108,28 +108,49 @@ function buildHideDecorations(view: EditorView): DecorationSet {
 
 export interface MarkupHighlightHandlers {
   onLinkClick?: (rawTarget: string) => void;
+  onTagClick?: (tagName: string) => void;
 }
 
-function linkClickHandler(handlers: MarkupHighlightHandlers): Extension {
+function clickHandler(handlers: MarkupHighlightHandlers): Extension {
   return EditorView.domEventHandlers({
     mousedown(event, view) {
       const target = event.target;
+      if (!(target instanceof HTMLElement)) return false;
       // event.target is usually one of CM6's own nested syntax-highlighting
-      // spans (e.g. for the "[[" / "]]" tokens), not the .cm-pkm-link span
-      // itself, so this must walk up to find it rather than check directly.
-      const linkEl = target instanceof HTMLElement ? target.closest('.cm-pkm-link') : null;
-      if (!linkEl) return false;
-      const pos = view.posAtDOM(linkEl);
-      const doc = view.state.doc.toString();
-      for (const match of doc.matchAll(LINK_RE)) {
-        const from = match.index ?? 0;
-        const to = from + match[0].length;
-        if (pos >= from && pos <= to) {
-          const rawTarget = match[1]?.trim();
-          if (rawTarget) handlers.onLinkClick?.(rawTarget);
-          return true;
+      // spans, not the .cm-pkm-link/.cm-pkm-tag span itself, so this must
+      // walk up to find it rather than check directly.
+      const linkEl = target.closest('.cm-pkm-link');
+      if (linkEl) {
+        const pos = view.posAtDOM(linkEl);
+        const doc = view.state.doc.toString();
+        for (const match of doc.matchAll(LINK_RE)) {
+          const from = match.index ?? 0;
+          const to = from + match[0].length;
+          if (pos >= from && pos <= to) {
+            const rawTarget = match[1]?.trim();
+            if (rawTarget) handlers.onLinkClick?.(rawTarget);
+            return true;
+          }
         }
+        return false;
       }
+
+      const tagEl = target.closest('.cm-pkm-tag');
+      if (tagEl) {
+        const pos = view.posAtDOM(tagEl);
+        const doc = view.state.doc.toString();
+        for (const match of doc.matchAll(TAG_RE)) {
+          const from = match.index ?? 0;
+          const to = from + match[0].length;
+          if (pos >= from && pos <= to) {
+            const tagName = match[1];
+            if (tagName) handlers.onTagClick?.(tagName);
+            return true;
+          }
+        }
+        return false;
+      }
+
       return false;
     },
   });
@@ -169,6 +190,6 @@ export function markupHighlightExtension(handlers: MarkupHighlightHandlers = {})
       },
       { decorations: (plugin) => plugin.decorations },
     ),
-    linkClickHandler(handlers),
+    clickHandler(handlers),
   ];
 }

@@ -19,9 +19,18 @@ export interface NoteEditorScreenProps {
    * that didn't exist in that list yet (e.g. one just created via a
    * frontier [[wiki link]] click). */
   onNotesChanged: () => Promise<void>;
+  /** Navigate to the task pool, pre-filtered to this tag — invoked when the
+   * user clicks a #tag in the note. */
+  onTagClick: (tagName: string) => void;
 }
 
-export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChanged }: NoteEditorScreenProps) {
+export function NoteEditorScreen({
+  note,
+  onSave,
+  onNavigateToNote,
+  onNotesChanged,
+  onTagClick,
+}: NoteEditorScreenProps) {
   const [title, setTitle] = useState(note.title ?? '');
   const [markdown, setMarkdown] = useState(note.markdown);
   const [saving, setSaving] = useState(false);
@@ -169,6 +178,7 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChange
         onChange={setMarkdown}
         taskHandlers={taskHandlers}
         onNavigateToLink={(rawTarget) => void handleLinkClick(rawTarget)}
+        onTagClick={onTagClick}
         onSelectionChange={setSelectionRect}
       />
       {selectionRect && (

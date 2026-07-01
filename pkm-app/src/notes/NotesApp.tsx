@@ -21,9 +21,11 @@ export interface NotesAppProps {
    * autosave via the editor screen's own cleanup, and remounting fresh on
    * return guarantees it starts from the latest saved content. */
   active?: boolean;
+  /** Navigate to the task pool, pre-filtered to this tag. */
+  onTagClick: (tagName: string) => void;
 }
 
-export function NotesApp({ jumpToNoteId, refreshToken, active = true }: NotesAppProps = {}) {
+export function NotesApp({ jumpToNoteId, refreshToken, active = true, onTagClick }: NotesAppProps) {
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -94,6 +96,7 @@ export function NotesApp({ jumpToNoteId, refreshToken, active = true }: NotesApp
           onSave={handleSave}
           onNavigateToNote={setSelectedId}
           onNotesChanged={refresh}
+          onTagClick={onTagClick}
         />
       ) : selectedNote ? null : (
         <p>Select a note, or create a new one.</p>

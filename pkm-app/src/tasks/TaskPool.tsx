@@ -9,6 +9,9 @@ export interface TaskPoolProps {
    * the notes view (which may already have one of those notes open in
    * memory) knows to re-fetch instead of showing stale content. */
   onNotesRewritten: () => void;
+  /** Set (to a new value) to pre-select this tag in the filter — e.g. after
+   * clicking a #tag in a note. */
+  jumpToTag?: string | null;
 }
 
 interface TaskPoolEntry {
@@ -18,7 +21,7 @@ interface TaskPoolEntry {
 
 type StatusFilter = 'all' | TaskStatus;
 
-export function TaskPool({ onOpenNote, onNotesRewritten }: TaskPoolProps) {
+export function TaskPool({ onOpenNote, onNotesRewritten, jumpToTag }: TaskPoolProps) {
   const [entries, setEntries] = useState<TaskPoolEntry[] | null>(null);
   const [filter, setFilter] = useState<StatusFilter>('open');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
@@ -36,6 +39,14 @@ export function TaskPool({ onOpenNote, onNotesRewritten }: TaskPoolProps) {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh only depends on `filter`, read fresh each call
   }, [filter]);
+
+  useEffect(() => {
+    if (!jumpToTag) return;
+    setTagFilter(jumpToTag);
+    // A tagged task could be 'done' — show every status so it's not hidden
+    // by the default 'open' filter.
+    setFilter('all');
+  }, [jumpToTag]);
 
   const availableTags = useMemo(() => {
     if (!entries) return [];

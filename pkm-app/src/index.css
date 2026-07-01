@@ -65,6 +65,12 @@
   padding-left: 0.5em;
 }
 
+.save-status {
+  color: #888;
+  font-size: 0.85em;
+  margin: 0 0.5em;
+}
+
 .pkm-error-banner {
   position: fixed;
   top: 0;

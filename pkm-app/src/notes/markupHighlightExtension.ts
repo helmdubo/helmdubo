@@ -49,7 +49,11 @@ function overlapsAny(from: number, to: number, ranges: Range[]): boolean {
   return ranges.some(([excludedFrom, excludedTo]) => from < excludedTo && to > excludedFrom);
 }
 
-function buildDecorations(view: EditorView): DecorationSet {
+/** Style decorations only ever mark the [[ ]] label text, never the bracket
+ * characters themselves — the brackets are hidden by buildHideDecorations
+ * unless the cursor is touching that link, matching Obsidian's Live Preview
+ * (a wiki link reads as plain link text until you start editing it). */
+function buildStyleDecorations(view: EditorView): DecorationSet {
   const doc = view.state.doc.toString();
   const excluded = findExcludedRanges(doc);
 
@@ -62,13 +66,42 @@ function buildDecorations(view: EditorView): DecorationSet {
   for (const match of doc.matchAll(LINK_RE)) {
     const from = match.index ?? 0;
     const to = from + match[0].length;
-    if (!overlapsAny(from, to, excluded)) marks.push({ from, to, className: 'cm-pkm-link' });
+    if (!overlapsAny(from, to, excluded)) {
+      marks.push({ from: from + 2, to: to - 2, className: 'cm-pkm-link' });
+    }
   }
-  marks.sort((a, b) => a.from - b.from);
+  marks.sort((a, b) => a.from - b.from || a.to - b.to);
 
   const builder = new RangeSetBuilder<Decoration>();
   for (const mark of marks) {
     builder.add(mark.from, mark.to, Decoration.mark({ class: mark.className }));
+  }
+  return builder.finish();
+}
+
+/** Collapses the "[[" / "]]" bracket pairs of a wiki link away, unless the
+ * cursor/selection currently touches that link (so it can still be edited). */
+function buildHideDecorations(view: EditorView): DecorationSet {
+  const state = view.state;
+  const doc = state.doc.toString();
+  const selection = state.selection.main;
+  const excluded = findExcludedRanges(doc);
+
+  const ranges: Array<{ from: number; to: number }> = [];
+  for (const match of doc.matchAll(LINK_RE)) {
+    const from = match.index ?? 0;
+    const to = from + match[0].length;
+    if (overlapsAny(from, to, excluded)) continue;
+    const cursorInside = selection.from <= to && selection.to >= from;
+    if (cursorInside) continue;
+    ranges.push({ from, to: from + 2 });
+    ranges.push({ from: to - 2, to });
+  }
+  ranges.sort((a, b) => a.from - b.from || a.to - b.to);
+
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const range of ranges) {
+    builder.add(range.from, range.to, Decoration.replace({}));
   }
   return builder.finish();
 }
@@ -109,12 +142,28 @@ export function markupHighlightExtension(handlers: MarkupHighlightHandlers = {})
         decorations: DecorationSet;
 
         constructor(view: EditorView) {
-          this.decorations = buildDecorations(view);
+          this.decorations = buildStyleDecorations(view);
         }
 
         update(update: ViewUpdate) {
           if (update.docChanged) {
-            this.decorations = buildDecorations(update.view);
+            this.decorations = buildStyleDecorations(update.view);
+          }
+        }
+      },
+      { decorations: (plugin) => plugin.decorations },
+    ),
+    ViewPlugin.fromClass(
+      class {
+        decorations: DecorationSet;
+
+        constructor(view: EditorView) {
+          this.decorations = buildHideDecorations(view);
+        }
+
+        update(update: ViewUpdate) {
+          if (update.docChanged || update.selectionSet) {
+            this.decorations = buildHideDecorations(update.view);
           }
         }
       },

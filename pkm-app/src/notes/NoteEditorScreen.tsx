@@ -42,15 +42,43 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChange
   }, [note.id]);
 
   const dirty = title !== (note.title ?? '') || markdown !== note.markdown;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const markdownRef = useRef(markdown);
+  markdownRef.current = markdown;
 
   async function handleSave() {
     setSaving(true);
     try {
-      await onSave({ title: title.trim() === '' ? null : title, markdown });
+      await onSave({ title: titleRef.current.trim() === '' ? null : titleRef.current, markdown: markdownRef.current });
     } finally {
       setSaving(false);
     }
   }
+
+  /** Autosaves prose edits a short beat after typing stops, so there's no
+   * manual Save button to press. */
+  useEffect(() => {
+    if (!dirty) return;
+    const timer = setTimeout(() => void handleSave(), 600);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSave reads current title/markdown via refs
+  }, [title, markdown, dirty]);
+
+  /** Flushes any pending edit immediately when switching away from this note
+   * (NotesApp remounts NoteEditorScreen per note via `key`), so a debounce
+   * window in flight doesn't silently drop the last keystrokes. */
+  useEffect(() => {
+    return () => {
+      if (dirtyRef.current) {
+        void onSave({
+          title: titleRef.current.trim() === '' ? null : titleRef.current,
+          markdown: markdownRef.current,
+        });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only re-arms per note.id (remount boundary), reads latest values via refs
+  }, [note.id]);
 
   /** Task actions (toggle/rename/delete-ref) commit immediately, independent
    * of the manual Save button used for prose edits. */
@@ -134,9 +162,7 @@ export function NoteEditorScreen({ note, onSave, onNavigateToNote, onNotesChange
         value={title}
         onChange={(e) => setTitle(e.target.value)}
       />
-      <button onClick={() => void handleSave()} disabled={!dirty || saving}>
-        {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
-      </button>
+      <span className="save-status">{saving ? 'Saving…' : dirty ? 'Unsaved…' : 'Saved'}</span>
       <button onClick={() => void handleCreateTask()}>Create task from selection</button>
       <MarkdownEditor
         ref={editorRef}

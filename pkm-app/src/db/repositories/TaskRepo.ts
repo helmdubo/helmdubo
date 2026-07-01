@@ -118,6 +118,22 @@ export class TaskRepo {
     ]);
   }
 
+  async setDeadline(taskId: string, deadline: number | null): Promise<void> {
+    await this.conn.exec('UPDATE tasks SET deadline = ?, updated_at = ? WHERE id = ?;', [
+      deadline,
+      Date.now(),
+      taskId,
+    ]);
+  }
+
+  async setUrgency(taskId: string, urgency: TaskUrgency | null): Promise<void> {
+    await this.conn.exec('UPDATE tasks SET urgency = ?, updated_at = ? WHERE id = ?;', [
+      urgency,
+      Date.now(),
+      taskId,
+    ]);
+  }
+
   async setStatus(taskId: string, status: TaskStatus): Promise<void> {
     await this.conn.exec('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?;', [
       status,

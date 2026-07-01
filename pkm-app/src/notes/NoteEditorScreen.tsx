@@ -12,6 +12,7 @@ import { noteLabel, resolveNoteLink } from './noteLabel';
 import type { SelectionRect } from './selectionToolbarExtension';
 import type { MentionCandidate, MentionMatch } from './mentions';
 import type { MentionScreenPosition } from './mentionExtension';
+import { TaskDrawer } from '../tasks/TaskDrawer';
 
 export interface NoteEditorScreenProps {
   note: Note;
@@ -43,6 +44,7 @@ export function NoteEditorScreen({
     match: MentionMatch;
     position: MentionScreenPosition;
   } | null>(null);
+  const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const titleRef = useRef(title);
   titleRef.current = title;
@@ -234,7 +236,26 @@ export function NoteEditorScreen({
         await persistMarkdown(newMarkdown);
       })();
     },
+    onOpenTask: setDrawerTaskId,
   };
+
+  /** Drawer edits (v3 §8.5 "правка через ref/widget"): write the task object,
+   * rewrite this note's ref-line immediately; other notes' lines catch up
+   * lazily. Status toggles keep the line's inline #tags — only the checkbox
+   * changes. */
+  async function handleDrawerSetTitle(taskId: string, title: string) {
+    const { tasks } = await getAppStorage();
+    await tasks.setTitle(taskId, title);
+    const newMarkdown = editorRef.current?.rewriteTaskRef(taskId, { title });
+    if (newMarkdown != null) await persistMarkdown(newMarkdown);
+  }
+
+  async function handleDrawerSetStatus(taskId: string, status: 'open' | 'done') {
+    const { tasks } = await getAppStorage();
+    await tasks.setStatus(taskId, status);
+    const newMarkdown = editorRef.current?.rewriteTaskRef(taskId, { checked: status === 'done' });
+    if (newMarkdown != null) await persistMarkdown(newMarkdown);
+  }
 
   return (
     <section className="note-editor">
@@ -290,6 +311,18 @@ export function NoteEditorScreen({
         </button>
       )}
       <Backlinks backlinks={backlinks} onOpen={onNavigateToNote} />
+      {drawerTaskId && (
+        <TaskDrawer
+          taskId={drawerTaskId}
+          onClose={() => setDrawerTaskId(null)}
+          onOpenNote={(noteId) => {
+            setDrawerTaskId(null);
+            onNavigateToNote(noteId);
+          }}
+          onSetTitle={handleDrawerSetTitle}
+          onSetStatus={handleDrawerSetStatus}
+        />
+      )}
     </section>
   );
 }

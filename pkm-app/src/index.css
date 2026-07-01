@@ -109,6 +109,87 @@
   cursor: pointer;
 }
 
+.task-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  z-index: 1002;
+  background: #fff;
+  border-left: 1px solid #ddd;
+  box-shadow: -2px 0 12px rgba(0, 0, 0, 0.15);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+/* Bottom sheet on narrow screens (delta §B.3). */
+@media (max-width: 767px) {
+  .task-drawer {
+    top: auto;
+    left: 0;
+    width: auto;
+    max-height: 55vh;
+    border-left: none;
+    border-top: 1px solid #ddd;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.15);
+  }
+}
+
+.task-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.task-drawer-close {
+  border: none;
+  background: none;
+  font-size: 1.3em;
+  cursor: pointer;
+  color: #666;
+}
+
+.task-drawer-title {
+  font-size: 1.05em;
+  font-weight: 600;
+  padding: 0.3em 0.4em;
+}
+
+.task-drawer-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: #555;
+  font-size: 0.9em;
+}
+
+.task-drawer-notes h3 {
+  margin: 0.5em 0 0.3em;
+  font-size: 0.9em;
+  color: #555;
+}
+
+.task-drawer-notes ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.task-drawer-notes button {
+  border: none;
+  background: none;
+  color: #6a3fb0;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0.2em 0;
+}
+
 .save-status {
   color: #888;
   font-size: 0.85em;

@@ -15,6 +15,8 @@ export interface TaskWidgetHandlers {
   onRename: (taskId: string, title: string, newMarkdown: string) => void;
   onRequestDeleteRef: (taskId: string, title: string) => Promise<boolean>;
   onDeleteRefApplied: (taskId: string, newMarkdown: string) => void;
+  /** Click on the widget's title text — opens the task drawer (delta §B.3). */
+  onOpenTask: (taskId: string) => void;
 }
 
 /** Marks a transaction as an internal, programmatic task-ref edit so the
@@ -69,6 +71,11 @@ class TaskRefWidget extends WidgetType {
     titleEl.className = 'task-ref-title';
     titleEl.textContent = title;
     if (checked) titleEl.style.textDecoration = 'line-through';
+    titleEl.style.cursor = 'pointer';
+    titleEl.setAttribute('role', 'button');
+    titleEl.setAttribute('aria-label', `Open task "${title}"`);
+    titleEl.addEventListener('mousedown', (e) => e.preventDefault());
+    titleEl.addEventListener('click', () => handlers.onOpenTask(taskId));
 
     const renameBtn = wrap.appendChild(document.createElement('button'));
     renameBtn.type = 'button';
@@ -109,6 +116,29 @@ class TaskRefWidget extends WidgetType {
   ignoreEvent(): boolean {
     return true;
   }
+}
+
+/**
+ * Rewrites one task's ref-line in-place (annotated as an internal edit so
+ * the protection filter lets it through) and returns the resulting full
+ * document, or null when this note holds no ref for the task. Fields not
+ * passed in `changes` keep the line's current values — a drawer status
+ * toggle must not clobber the line's inline #tags.
+ */
+export function applyTaskRefEdit(
+  view: EditorView,
+  taskId: string,
+  changes: { checked?: boolean; title?: string },
+): string | null {
+  const match = findTaskRefLines(view.state.doc.toString()).find((m) => m.taskId === taskId);
+  if (!match) return null;
+  const newLine = renderTaskRefLine({
+    checked: changes.checked ?? match.checked,
+    title: changes.title ?? match.title,
+    taskId,
+  });
+  dispatchInternalChange(view, match.from, match.to, newLine);
+  return view.state.doc.toString();
 }
 
 function buildDecorations(view: EditorView, handlers: TaskWidgetHandlers): DecorationSet {

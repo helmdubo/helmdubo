@@ -50,6 +50,27 @@ export async function renameTaskEverywhere(
   }
 }
 
+/** Toggles a task's status from outside a note (pool / drawer): updates the
+ * task object, then rewrites the checkbox of every ref-line so the markdown
+ * representation follows tasks.status (§8.4), preserving each line's own
+ * middle text (title + inline tags). */
+export async function setTaskStatusEverywhere(
+  conn: StorageConnection,
+  taskId: string,
+  status: 'open' | 'done',
+): Promise<void> {
+  const notes = new NoteRepo(conn);
+  const tasks = new TaskRepo(conn);
+
+  await tasks.setStatus(taskId, status);
+  const noteIds = await tasks.getNoteIds(taskId);
+  for (const noteId of noteIds) {
+    await rewriteRefInNote(conn, notes, noteId, taskId, 'edit-from-pool', (title) =>
+      renderTaskRefLine({ checked: status === 'done', title, taskId }),
+    );
+  }
+}
+
 /** Deletes a task from the pool (§8.6 "Удалить из пула"): rewrites every
  * note's ref-line back to ordinary text — same rule as the single-note
  * "remove ref" action — then deletes the task object, cascading

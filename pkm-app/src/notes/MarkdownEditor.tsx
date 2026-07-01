@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { EditorView, basicSetup } from 'codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { taskRefExtension } from './taskRefExtension';
+import { applyTaskRefEdit, taskRefExtension } from './taskRefExtension';
 import type { TaskWidgetHandlers } from './taskRefExtension';
 import { markupHighlightExtension } from './markupHighlightExtension';
 import { plainCheckboxExtension } from './plainCheckboxExtension';
@@ -36,6 +36,10 @@ export interface MarkdownEditorHandle {
    * «Связать») and returns the resulting full document text, or null if the
    * document changed under the match since it was reported. */
   materializeMention: (match: MentionMatch) => string | null;
+  /** Rewrites this note's ref-line for a task (drawer edits, v3 §8.5
+   * "текущая ref-строка сразу") and returns the new full document, or null
+   * when the note has no ref for that task. */
+  rewriteTaskRef: (taskId: string, changes: { checked?: boolean; title?: string }) => string | null;
 }
 
 const noopTaskHandlers: TaskWidgetHandlers = {
@@ -43,6 +47,7 @@ const noopTaskHandlers: TaskWidgetHandlers = {
   onRename: () => {},
   onRequestDeleteRef: () => Promise.resolve(false),
   onDeleteRefApplied: () => {},
+  onOpenTask: () => {},
 };
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
@@ -92,6 +97,11 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           });
           return view.state.doc.toString();
         },
+        rewriteTaskRef: (taskId, changes) => {
+          const view = viewRef.current;
+          if (!view) return null;
+          return applyTaskRefEdit(view, taskId, changes);
+        },
       }),
       [],
     );
@@ -110,6 +120,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           taskHandlersRef.current.onRequestDeleteRef(taskId, title),
         onDeleteRefApplied: (taskId, newMarkdown) =>
           taskHandlersRef.current.onDeleteRefApplied(taskId, newMarkdown),
+        onOpenTask: (taskId) => taskHandlersRef.current.onOpenTask(taskId),
       };
 
       const view = new EditorView({

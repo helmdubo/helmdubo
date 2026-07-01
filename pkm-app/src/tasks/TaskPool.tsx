@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Tag, Task, TaskStatus } from '../db/repositories';
 import { getAppStorage } from '../app/storage';
-import { renameTaskEverywhere, deleteTaskEverywhere } from '../db/taskRewrite';
+import { renameTaskEverywhere, deleteTaskEverywhere, setTaskStatusEverywhere } from '../db/taskRewrite';
+import { TaskDrawer } from './TaskDrawer';
 
 export interface TaskPoolProps {
   onOpenNote: (noteId: string) => void;
@@ -25,6 +26,7 @@ export function TaskPool({ onOpenNote, onNotesRewritten, jumpToTag }: TaskPoolPr
   const [entries, setEntries] = useState<TaskPoolEntry[] | null>(null);
   const [filter, setFilter] = useState<StatusFilter>('open');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
 
   async function refresh() {
     const { tasks, tags } = await getAppStorage();
@@ -61,10 +63,20 @@ export function TaskPool({ onOpenNote, onNotesRewritten, jumpToTag }: TaskPoolPr
     return entries.filter((entry) => entry.tags.some((t) => t.name === tagFilter));
   }, [entries, tagFilter]);
 
-  async function handleOpen(taskId: string) {
-    const { tasks } = await getAppStorage();
-    const noteId = await tasks.getFirstNoteId(taskId);
-    if (noteId) onOpenNote(noteId);
+  /** Pool-side drawer edits follow §8.5's pool rules: rewrite every
+   * ref-line, snapshotting each affected note first. */
+  async function handleDrawerSetTitle(taskId: string, title: string) {
+    const { adapter } = await getAppStorage();
+    await renameTaskEverywhere(adapter, taskId, title);
+    await refresh();
+    onNotesRewritten();
+  }
+
+  async function handleDrawerSetStatus(taskId: string, status: TaskStatus) {
+    const { adapter } = await getAppStorage();
+    await setTaskStatusEverywhere(adapter, taskId, status);
+    await refresh();
+    onNotesRewritten();
   }
 
   async function handleRename(task: Task) {
@@ -119,7 +131,7 @@ export function TaskPool({ onOpenNote, onNotesRewritten, jumpToTag }: TaskPoolPr
           {visibleEntries.map(({ task, tags }) => (
             <li key={task.id}>
               <button
-                onClick={() => void handleOpen(task.id)}
+                onClick={() => setDrawerTaskId(task.id)}
                 style={{ textDecoration: task.status === 'done' ? 'line-through' : undefined }}
               >
                 {task.title}
@@ -136,6 +148,21 @@ export function TaskPool({ onOpenNote, onNotesRewritten, jumpToTag }: TaskPoolPr
             </li>
           ))}
         </ul>
+      )}
+      {drawerTaskId && (
+        <TaskDrawer
+          taskId={drawerTaskId}
+          onClose={() => {
+            setDrawerTaskId(null);
+            void refresh();
+          }}
+          onOpenNote={(noteId) => {
+            setDrawerTaskId(null);
+            onOpenNote(noteId);
+          }}
+          onSetTitle={handleDrawerSetTitle}
+          onSetStatus={handleDrawerSetStatus}
+        />
       )}
     </section>
   );

@@ -71,6 +71,33 @@ describe('SqliteWasmOpfsAdapter', () => {
     ]);
   });
 
+  it('serializes an external exec so it cannot interleave inside a transaction', async () => {
+    // Make each transport call resolve on a later microtask, so ordering is
+    // decided by the adapter's queue rather than by synchronous resolution.
+    const original = transport.exec.bind(transport);
+    transport.exec = async (sql, params) => {
+      await Promise.resolve();
+      return original(sql, params);
+    };
+
+    const txPromise = adapter.transaction(async (tx) => {
+      await tx.exec('a;');
+      await tx.exec('b;');
+    });
+    // Scheduled while the transaction is in flight; it must wait for COMMIT.
+    const externalPromise = adapter.exec('external;');
+
+    await Promise.all([txPromise, externalPromise]);
+
+    expect(transport.calls.map((c) => c.sql)).toEqual([
+      'BEGIN;',
+      'a;',
+      'b;',
+      'COMMIT;',
+      'external;',
+    ]);
+  });
+
   it('transaction() rolls back and rethrows when the callback throws', async () => {
     const failure = new Error('boom');
 

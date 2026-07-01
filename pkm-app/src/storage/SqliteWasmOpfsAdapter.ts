@@ -85,8 +85,27 @@ function isOpfsAvailable(): boolean {
 
 export class SqliteWasmOpfsAdapter implements StorageAdapter {
   private initialized = false;
+  /** Tail of the serialization queue: every exec/query/transaction chains off
+   * this so operations run one at a time against the single worker connection.
+   * Without it, an external exec/query awaited by other app code could slip
+   * between a transaction's BEGIN and COMMIT and corrupt its atomicity. */
+  private queueTail: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly transport: SqlTransport = new WorkerSqlTransport()) {}
+
+  /**
+   * Runs `op` only after every previously-enqueued operation settles, and
+   * advances the queue tail. Rejections are swallowed on the tail (but still
+   * surfaced to the caller) so one failed operation can't wedge the queue.
+   */
+  private enqueue<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.queueTail.then(op, op);
+    this.queueTail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
 
   async init(): Promise<void> {
     await this.transport.init();
@@ -94,27 +113,35 @@ export class SqliteWasmOpfsAdapter implements StorageAdapter {
   }
 
   exec(sql: string, params?: SqlParams): Promise<void> {
-    return this.transport.exec(sql, params);
+    return this.enqueue(() => this.transport.exec(sql, params));
   }
 
   query<T>(sql: string, params?: SqlParams): Promise<T[]> {
-    return this.transport.query(sql, params);
+    return this.enqueue(() => this.transport.query(sql, params));
   }
 
-  async transaction<T>(fn: (tx: StorageTransaction) => Promise<T>): Promise<T> {
-    await this.transport.exec('BEGIN;');
-    const tx: StorageTransaction = {
-      exec: (sql, params) => this.transport.exec(sql, params),
-      query: (sql, params) => this.transport.query(sql, params),
-    };
-    try {
-      const result = await fn(tx);
-      await this.transport.exec('COMMIT;');
-      return result;
-    } catch (err) {
-      await this.transport.exec('ROLLBACK;');
-      throw err;
-    }
+  transaction<T>(fn: (tx: StorageTransaction) => Promise<T>): Promise<T> {
+    return this.enqueue(async () => {
+      await this.transport.exec('BEGIN;');
+      // tx.exec/tx.query talk straight to the transport, bypassing the queue:
+      // this transaction already owns the queue slot for its whole duration,
+      // so re-enqueuing here would deadlock (the queued call would wait on the
+      // transaction that is itself waiting on that call). External
+      // adapter.exec/query stay queued and therefore cannot interleave until
+      // COMMIT/ROLLBACK releases the slot.
+      const tx: StorageTransaction = {
+        exec: (sql, params) => this.transport.exec(sql, params),
+        query: (sql, params) => this.transport.query(sql, params),
+      };
+      try {
+        const result = await fn(tx);
+        await this.transport.exec('COMMIT;');
+        return result;
+      } catch (err) {
+        await this.transport.exec('ROLLBACK;');
+        throw err;
+      }
+    });
   }
 
   async diagnostics(): Promise<StorageDiagnostics> {

@@ -7,6 +7,7 @@ describe('parseTaskRefLine', () => {
       checked: false,
       title: 'Call accountant',
       taskId: 'abc-123',
+      tags: [],
     });
   });
 
@@ -15,6 +16,16 @@ describe('parseTaskRefLine', () => {
       checked: true,
       title: 'Call accountant',
       taskId: 'abc-123',
+      tags: [],
+    });
+  });
+
+  it('splits inline #tags out of the title', () => {
+    expect(parseTaskRefLine('- [ ] Call accountant #armenia #banking ^task-abc-123')).toEqual({
+      checked: false,
+      title: 'Call accountant',
+      taskId: 'abc-123',
+      tags: ['armenia', 'banking'],
     });
   });
 
@@ -35,6 +46,7 @@ describe('parseTaskRefLine', () => {
       checked: false,
       title: 'Indented',
       taskId: 'xyz',
+      tags: [],
     });
   });
 });
@@ -52,8 +64,14 @@ describe('renderTaskRefLine', () => {
     );
   });
 
-  it('round-trips through parse', () => {
-    const data = { checked: true, title: 'Round trip', taskId: 'abc-def' };
+  it('re-appends inline #tags after the title', () => {
+    expect(
+      renderTaskRefLine({ checked: false, title: 'Call CPA', taskId: 't1', tags: ['armenia', 'banking'] }),
+    ).toBe('- [ ] Call CPA #armenia #banking ^task-t1');
+  });
+
+  it('round-trips through parse, tags included', () => {
+    const data = { checked: true, title: 'Round trip', taskId: 'abc-def', tags: ['x', 'y'] };
     expect(parseTaskRefLine(renderTaskRefLine(data))).toEqual(data);
   });
 });

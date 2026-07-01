@@ -6,7 +6,7 @@ import { migrate } from './migrate';
 import { NoteRepo } from './repositories/NoteRepo';
 import { TagRepo } from './repositories/TagRepo';
 import { TaskRepo } from './repositories/TaskRepo';
-import { rebuildNoteDerivedIndex } from './reconcile';
+import { rebuildNoteDerivedIndex, rebuildTaskTagsForTasks } from './reconcile';
 
 class InMemoryConnection implements StorageConnection {
   constructor(private readonly db: Database) {}
@@ -110,27 +110,43 @@ describe('rebuildNoteDerivedIndex', () => {
     expect(linkRows[0]?.n).toBe(1);
   });
 
-  it('creates a task_ref for a valid anchor and syncs title/tags from the ref line', async () => {
+  it('creates a task_ref for a valid anchor and derives task_tags, without touching the canonical title', async () => {
     const { conn, notes, tasks } = await setup();
     await notes.create({ id: 'n1', markdown: 'placeholder' });
     // Create the task against a second note, then drop that ref so this test
     // can exercise the reconciler discovering a *new* ref for it in n1.
     await notes.create({ id: 'n2', markdown: 'placeholder' });
-    const task = await tasks.createWithFirstRef('n2', 'old title');
+    const task = await tasks.createWithFirstRef('n2', 'canonical title');
     await conn.exec('DELETE FROM task_refs WHERE task_id = ? AND note_id = ?;', [task.id, 'n2']);
 
-    await notes.update('n1', { markdown: `- [ ] New title #urgent ^task-${task.id}` });
+    await notes.update('n1', { markdown: `- [ ] Stale line #urgent ^task-${task.id}` });
     await rebuildNoteDerivedIndex(conn, 'n1');
 
+    // tasks is canonical for title (INV-1/-2): a stale markdown line must NOT
+    // overwrite it during reconcile.
     const updated = await tasks.get(task.id);
-    expect(updated?.title).toBe('New title');
+    expect(updated?.title).toBe('canonical title');
     expect(await tasks.getRefCount(task.id)).toBe(1);
 
+    // Inline #tags on the ref line, however, ARE the source of task_tags.
     const taskTagRows = await conn.query<{ name: string }>(
       'SELECT t.name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id WHERE tt.task_id = ?;',
       [task.id],
     );
     expect(taskTagRows.map((r) => r.name)).toEqual(['urgent']);
+  });
+
+  it('creates only one task_ref for a duplicate ^task-id in the same note (§4.2)', async () => {
+    const { conn, notes, tasks } = await setup();
+    await notes.create({ id: 'n1', markdown: 'placeholder' });
+    const task = await tasks.createWithFirstRef('n1', 'Dup');
+    await notes.update('n1', {
+      markdown: `- [ ] Dup ^task-${task.id}\n- [ ] Dup again ^task-${task.id}`,
+    });
+
+    await rebuildNoteDerivedIndex(conn, 'n1');
+
+    expect(await tasks.getRefCount(task.id)).toBe(1);
   });
 
   it('ignores an anchor whose task object does not exist (§5.3)', async () => {
@@ -142,21 +158,89 @@ describe('rebuildNoteDerivedIndex', () => {
     expect(refRows[0]?.n).toBe(0);
   });
 
-  it('never removes an existing task_ref just because the anchor disappeared from this note', async () => {
+  it('clears a stale task_ref when its anchor is gone from the note (task_refs is derived)', async () => {
     const { conn, notes, tasks } = await setup();
     await notes.create({ id: 'n1', markdown: 'placeholder' });
     const task = await tasks.createWithFirstRef('n1', 'Keep me');
+    await notes.update('n1', { markdown: `- [ ] Keep me ^task-${task.id}` });
+    await rebuildNoteDerivedIndex(conn, 'n1');
     expect(await tasks.getRefCount(task.id)).toBe(1);
 
-    // The anchor is no longer present in this note's markdown.
+    // The anchor is no longer present in this note's markdown — the derived
+    // task_ref must be removed (markdown anchors are canonical, INV-2).
     await notes.update('n1', { markdown: 'no task anchor here anymore' });
     await rebuildNoteDerivedIndex(conn, 'n1');
 
-    expect(await tasks.getRefCount(task.id)).toBe(1);
+    expect(await tasks.getRefCount(task.id)).toBe(0);
+    // The task object itself survives: deleting it requires a confirmation the
+    // domain layer owns, not a background reconcile.
+    expect(await tasks.get(task.id)).toBeDefined();
   });
 
   it('does nothing and does not throw for a non-existent note id', async () => {
     const { conn } = await setup();
     await expect(rebuildNoteDerivedIndex(conn, 'missing')).resolves.toBeUndefined();
+  });
+});
+
+describe('task_tags derivation (union across notes)', () => {
+  async function taskTagNames(conn: StorageConnection, taskId: string): Promise<string[]> {
+    const rows = await conn.query<{ name: string }>(
+      'SELECT t.name FROM task_tags tt JOIN tags t ON t.id = tt.tag_id WHERE tt.task_id = ? ORDER BY t.name;',
+      [taskId],
+    );
+    return rows.map((r) => r.name);
+  }
+
+  async function setupSharedTask() {
+    const ctx = await setup();
+    const { conn, notes } = ctx;
+    await notes.create({ id: 'A', markdown: '' });
+    await notes.create({ id: 'B', markdown: '' });
+    await conn.exec(
+      "INSERT INTO tasks (id, title, status, created_at, updated_at) VALUES ('X', 'Shared', 'open', 0, 0);",
+    );
+    await notes.update('A', { markdown: '- [ ] Shared #a ^task-X' });
+    await notes.update('B', { markdown: '- [ ] Shared #b ^task-X' });
+    await rebuildNoteDerivedIndex(conn, 'A');
+    await rebuildNoteDerivedIndex(conn, 'B');
+    return ctx;
+  }
+
+  it('unions inline #tags from every note referencing the task', async () => {
+    const { conn } = await setupSharedTask();
+    expect(await taskTagNames(conn, 'X')).toEqual(['a', 'b']);
+  });
+
+  it('rebuilding one note does not erase task_tags contributed by another note', async () => {
+    const { conn } = await setupSharedTask();
+
+    // Rebuild note A on its own — #b (from note B) must survive.
+    await rebuildNoteDerivedIndex(conn, 'A');
+    expect(await taskTagNames(conn, 'X')).toEqual(['a', 'b']);
+  });
+
+  it('removing one note ref leaves the other note tag; removing both leaves none', async () => {
+    const { conn, notes, tasks } = await setupSharedTask();
+
+    // Drop the anchor from note A: #a goes, #b stays.
+    await notes.update('A', { markdown: 'plain text now' });
+    await rebuildNoteDerivedIndex(conn, 'A');
+    expect(await taskTagNames(conn, 'X')).toEqual(['b']);
+
+    // Drop the anchor from note B too: X now has no refs → no task_tags.
+    await notes.update('B', { markdown: 'plain text now' });
+    await rebuildNoteDerivedIndex(conn, 'B');
+    expect(await taskTagNames(conn, 'X')).toEqual([]);
+    // The task object still exists (orphaned) until the domain layer deletes it.
+    expect(await tasks.get('X')).toBeDefined();
+  });
+
+  it('rebuildTaskTagsForTasks recomputes tags directly for the given tasks', async () => {
+    const { conn } = await setupSharedTask();
+    // Corrupt task_tags, then ask for a direct recompute.
+    await conn.exec('DELETE FROM task_tags WHERE task_id = ?;', ['X']);
+    await rebuildTaskTagsForTasks(conn, ['X']);
+    expect(await taskTagNames(conn, 'X')).toEqual(['a', 'b']);
   });
 });

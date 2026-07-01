@@ -41,12 +41,13 @@ class TaskRefWidget extends WidgetType {
     return (
       other.match.taskId === this.match.taskId &&
       other.match.checked === this.match.checked &&
-      other.match.title === this.match.title
+      other.match.title === this.match.title &&
+      other.match.tags.join(' ') === this.match.tags.join(' ')
     );
   }
 
   toDOM(view: EditorView): HTMLElement {
-    const { taskId, checked, title, from, to } = this.match;
+    const { taskId, checked, title, tags, from, to } = this.match;
     const handlers = this.handlers;
 
     const wrap = document.createElement('span');
@@ -60,7 +61,7 @@ class TaskRefWidget extends WidgetType {
     checkbox.addEventListener('click', (e) => {
       e.preventDefault();
       const newChecked = !checked;
-      const newLine = renderTaskRefLine({ checked: newChecked, title, taskId });
+      const newLine = renderTaskRefLine({ checked: newChecked, title, taskId, tags });
       dispatchInternalChange(view, from, to, newLine);
       handlers.onToggle(taskId, newChecked, view.state.doc.toString());
     });
@@ -80,7 +81,7 @@ class TaskRefWidget extends WidgetType {
       if (next === null) return;
       const trimmed = next.trim();
       if (!trimmed || trimmed === title) return;
-      const newLine = renderTaskRefLine({ checked, title: trimmed, taskId });
+      const newLine = renderTaskRefLine({ checked, title: trimmed, taskId, tags });
       dispatchInternalChange(view, from, to, newLine);
       handlers.onRename(taskId, trimmed, view.state.doc.toString());
     });

@@ -196,6 +196,60 @@
   margin: 0 0.5em;
 }
 
+/* Cloud view theme hooks: override these custom properties (e.g. in a dark
+   theme) to restyle the canvas without touching code. */
+:root {
+  --cloud-bg: #ffffff;
+  --cloud-node-tagless: #a5adb5;
+  --cloud-edge-wiki: rgba(80, 80, 110, 0.45);
+  --cloud-edge-suggested: rgba(110, 110, 140, 0.28);
+  --cloud-label: #444444;
+  --cloud-tooltip-bg: rgba(25, 25, 30, 0.88);
+  --cloud-tooltip-text: #ffffff;
+  --cloud-badge-bg: #d9480f;
+  --cloud-badge-text: #ffffff;
+}
+
+.cloud-view {
+  position: relative;
+  height: min(75vh, 720px);
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cloud-view canvas {
+  touch-action: none;
+}
+
+.cloud-empty {
+  padding: 2em 1.5em;
+  color: #666;
+  text-align: center;
+}
+
+.cloud-tag-chip {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  padding: 4px 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  font-size: 0.9em;
+}
+
+.cloud-tag-chip button {
+  border: none;
+  background: none;
+  color: #6a3fb0;
+  cursor: pointer;
+}
+
 .pkm-error-banner {
   position: fixed;
   top: 0;

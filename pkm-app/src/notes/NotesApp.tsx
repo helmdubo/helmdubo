@@ -8,9 +8,22 @@ import { NoteEditorScreen } from './NoteEditorScreen';
 export interface NotesAppProps {
   /** Set (to a new value) to select a note from outside, e.g. the task pool. */
   jumpToNoteId?: string | null;
+  /** Bump (to a new value) to force a re-fetch from outside — e.g. after the
+   * task pool rewrites ref-lines in notes this component already has open
+   * in memory, which wouldn't otherwise notice the change. */
+  refreshToken?: number;
+  /** Whether this pane is the currently visible tab. When false, the note
+   * editor unmounts entirely instead of staying alive-but-hidden behind
+   * `display: none`: CM6 doesn't reliably repaint a change dispatched while
+   * its container has no layout, so an external rewrite (e.g. a pool
+   * rename) landing while this tab is hidden could leave stale content on
+   * screen even after switching back. Unmounting also flushes any pending
+   * autosave via the editor screen's own cleanup, and remounting fresh on
+   * return guarantees it starts from the latest saved content. */
+  active?: boolean;
 }
 
-export function NotesApp({ jumpToNoteId }: NotesAppProps = {}) {
+export function NotesApp({ jumpToNoteId, refreshToken, active = true }: NotesAppProps = {}) {
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -22,6 +35,10 @@ export function NotesApp({ jumpToNoteId }: NotesAppProps = {}) {
   useEffect(() => {
     void refresh();
   }, []);
+
+  useEffect(() => {
+    if (refreshToken !== undefined) void refresh();
+  }, [refreshToken]);
 
   useEffect(() => {
     if (jumpToNoteId) setSelectedId(jumpToNoteId);
@@ -70,7 +87,7 @@ export function NotesApp({ jumpToNoteId }: NotesAppProps = {}) {
         onCreate={() => void handleCreate()}
         onDelete={(id) => void handleDelete(id)}
       />
-      {selectedNote ? (
+      {selectedNote && active ? (
         <NoteEditorScreen
           key={selectedNote.id}
           note={selectedNote}
@@ -78,7 +95,7 @@ export function NotesApp({ jumpToNoteId }: NotesAppProps = {}) {
           onNavigateToNote={setSelectedId}
           onNotesChanged={refresh}
         />
-      ) : (
+      ) : selectedNote ? null : (
         <p>Select a note, or create a new one.</p>
       )}
     </div>

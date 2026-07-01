@@ -10,6 +10,7 @@ export function App() {
   const [Harness, setHarness] = useState<ComponentType | null>(null);
   const [view, setView] = useState<View>('notes');
   const [jumpToNoteId, setJumpToNoteId] = useState<string | null>(null);
+  const [notesRefreshToken, setNotesRefreshToken] = useState(0);
 
   useEffect(() => {
     if (!isDevMode) return;
@@ -28,7 +29,7 @@ export function App() {
         </button>
       </nav>
       <div style={{ display: view === 'notes' ? 'block' : 'none' }}>
-        <NotesApp jumpToNoteId={jumpToNoteId} />
+        <NotesApp jumpToNoteId={jumpToNoteId} refreshToken={notesRefreshToken} active={view === 'notes'} />
       </div>
       {view === 'tasks' && (
         <TaskPool
@@ -36,6 +37,7 @@ export function App() {
             setJumpToNoteId(noteId);
             setView('notes');
           }}
+          onNotesRewritten={() => setNotesRefreshToken((t) => t + 1)}
         />
       )}
       {Harness && <Harness />}

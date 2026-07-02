@@ -65,7 +65,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
         replaceRange: (from: number, to: number, text: string) => {
           const view = viewRef.current;
           if (!view) return '';
-          view.dispatch({ changes: { from, to, insert: text } });
+          // Collapse the selection past the inserted text: if it survived
+          // the replacement, the selection menu would re-open over the
+          // freshly inserted [[link]] and a second tap would create a
+          // note literally titled "[[...]]".
+          view.dispatch({
+            changes: { from, to, insert: text },
+            selection: { anchor: from + text.length },
+          });
           return view.state.doc.toString();
         },
         rewriteTaskRef: (taskId, changes) => {

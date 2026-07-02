@@ -55,6 +55,9 @@ export function NoteEditorScreen({
   const [selectionLinkMode, setSelectionLinkMode] = useState<'exists' | 'new' | null>(null);
   const [taskMenu, setTaskMenu] = useState<TaskMenuRequest | null>(null);
   const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
+  /** One-shot guard for selection-menu actions: a fast double-tap must not
+   * run the action twice (e.g. create two notes). */
+  const selectionActionBusy = useRef(false);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const titleRef = useRef(title);
   titleRef.current = title;
@@ -146,7 +149,19 @@ export function NoteEditorScreen({
    * fails on Android, where tapping the menu collapses it first. */
   async function handleCreateTask() {
     const info = selectionInfo;
-    if (!info) return;
+    if (!info || selectionActionBusy.current) return;
+    selectionActionBusy.current = true;
+    // Close the menu synchronously, before any await — a second tap must
+    // find nothing to press.
+    setSelectionInfo(null);
+    try {
+      await createTaskFromSelection(info);
+    } finally {
+      selectionActionBusy.current = false;
+    }
+  }
+
+  async function createTaskFromSelection(info: SelectionInfo) {
     const taskTitle = info.text.replace(/\s+/g, ' ').trim();
     if (!taskTitle) return;
     const { tasks } = await getAppStorage();
@@ -159,7 +174,6 @@ export function NoteEditorScreen({
       renderTaskRefLine({ checked: false, title: taskTitle, taskId: task.id }) +
       (info.to < doc.length && doc[info.to] !== '\n' ? '\n' : '');
     const newMarkdown = editorRef.current?.replaceRange(info.from, info.to, refLine);
-    setSelectionInfo(null);
     if (newMarkdown != null && newMarkdown !== doc) {
       await persistMarkdown(newMarkdown);
     } else {
@@ -175,21 +189,26 @@ export function NoteEditorScreen({
    * Other occurrences of the same text are deliberately left untouched. */
   async function handleLinkSelection() {
     const info = selectionInfo;
-    if (!info) return;
-    const { from, to, text } = trimSelection(info);
-    if (!text || text.includes('\n')) return;
-    const { notes } = await getAppStorage();
-    const existing = await resolveNoteLink(notes, text);
-    if (!existing) {
-      await notes.create({ id: crypto.randomUUID(), title: text, markdown: '' });
-    }
-    const before = markdownRef.current;
-    const newMarkdown = editorRef.current?.replaceRange(from, to, `[[${text}]]`);
+    if (!info || selectionActionBusy.current) return;
+    selectionActionBusy.current = true;
     setSelectionInfo(null);
-    if (newMarkdown != null && newMarkdown !== before) {
-      await persistMarkdown(newMarkdown);
+    try {
+      const { from, to, text } = trimSelection(info);
+      if (!text || text.includes('\n')) return;
+      const { notes } = await getAppStorage();
+      const existing = await resolveNoteLink(notes, text);
+      if (!existing) {
+        await notes.create({ id: crypto.randomUUID(), title: text, markdown: '' });
+      }
+      const before = markdownRef.current;
+      const newMarkdown = editorRef.current?.replaceRange(from, to, `[[${text}]]`);
+      if (newMarkdown != null && newMarkdown !== before) {
+        await persistMarkdown(newMarkdown);
+      }
+      await onNotesChanged();
+    } finally {
+      selectionActionBusy.current = false;
     }
-    await onNotesChanged();
   }
 
   async function handleLinkClick(rawTarget: string) {

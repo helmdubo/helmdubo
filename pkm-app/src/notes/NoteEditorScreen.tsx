@@ -5,7 +5,7 @@ import { rebuildNoteDerivedIndex } from '../db/reconcile';
 import { MarkdownEditor } from './MarkdownEditor';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
 import type { TaskMenuRequest, TaskWidgetHandlers } from './taskRefExtension';
-import { findTaskRefLines, renderTaskRefLine } from './taskRef';
+import { findTaskRefLines, renderTaskRefLine, splitSelectionIntoTaskTitles } from './taskRef';
 import { Backlinks } from './Backlinks';
 import type { BacklinkEntry } from './Backlinks';
 import { noteLabel, resolveNoteLink } from './noteLabel';
@@ -149,42 +149,46 @@ export function NoteEditorScreen({
     };
   }, [selectionInfo, note.id]);
 
-  /** «+ Задача»: promote the captured selection to a task (v3 §8.3). The
-   * range was captured at selection time — reading the live selection here
-   * fails on Android, where tapping the menu collapses it first. */
-  async function handleCreateTask() {
+  /** «+ Задача» / «+ Задачи (N)»: promote the captured selection to one task
+   * (whole text) or several (parts split by `;`/`,`, v3 §8.3 + owner
+   * feedback). The range was captured at selection time — reading the live
+   * selection here fails on Android, where tapping the menu collapses it
+   * first. */
+  async function handleCreateTasks(titles: string[]) {
     const info = selectionInfo;
-    if (!info || selectionActionBusy.current) return;
+    if (!info || titles.length === 0 || selectionActionBusy.current) return;
     selectionActionBusy.current = true;
     // Close the menu synchronously, before any await — a second tap must
     // find nothing to press.
     setSelectionInfo(null);
     try {
-      await createTaskFromSelection(info);
+      const { tasks } = await getAppStorage();
+      const created = [];
+      for (const title of titles) {
+        created.push(await tasks.createWithFirstRef(note.id, title));
+      }
+      const doc = markdownRef.current;
+      const refLines = created
+        .map((task, i) => renderTaskRefLine({ checked: false, title: titles[i]!, taskId: task.id }))
+        .join('\n');
+      // Ref-lines only parse as whole lines — pad with newlines when the
+      // selection was a mid-line fragment.
+      const insert =
+        (info.from > 0 && doc[info.from - 1] !== '\n' ? '\n' : '') +
+        refLines +
+        (info.to < doc.length && doc[info.to] !== '\n' ? '\n' : '');
+      const newMarkdown = editorRef.current?.replaceRange(info.from, info.to, insert);
+      if (newMarkdown != null && newMarkdown !== doc) {
+        await persistMarkdown(newMarkdown);
+      } else {
+        // The edit was blocked (e.g. selection touched a protected ref-line)
+        // — don't leave orphaned task objects behind (INV-4).
+        for (const task of created) {
+          await tasks.delete(task.id);
+        }
+      }
     } finally {
       selectionActionBusy.current = false;
-    }
-  }
-
-  async function createTaskFromSelection(info: SelectionInfo) {
-    const taskTitle = info.text.replace(/\s+/g, ' ').trim();
-    if (!taskTitle) return;
-    const { tasks } = await getAppStorage();
-    const task = await tasks.createWithFirstRef(note.id, taskTitle);
-    const doc = markdownRef.current;
-    // A ref-line only parses as a whole line — pad with newlines when the
-    // selection was a mid-line fragment.
-    const refLine =
-      (info.from > 0 && doc[info.from - 1] !== '\n' ? '\n' : '') +
-      renderTaskRefLine({ checked: false, title: taskTitle, taskId: task.id }) +
-      (info.to < doc.length && doc[info.to] !== '\n' ? '\n' : '');
-    const newMarkdown = editorRef.current?.replaceRange(info.from, info.to, refLine);
-    if (newMarkdown != null && newMarkdown !== doc) {
-      await persistMarkdown(newMarkdown);
-    } else {
-      // The edit was blocked (e.g. selection touched a protected ref-line) —
-      // don't leave an orphaned task object behind (INV-4).
-      await tasks.delete(task.id);
     }
   }
 
@@ -338,6 +342,7 @@ export function NoteEditorScreen({
     findTaskRefLines(markdown).some((m) => selectionInfo.from < m.to && selectionInfo.to > m.from);
   const showSelectionMenu = selectionInfo !== null && !selectionTouchesTaskRef;
   const selectionIsMultiline = selectionInfo !== null && selectionInfo.text.includes('\n');
+  const selectionTaskParts = selectionInfo ? splitSelectionIntoTaskTitles(selectionInfo.text) : [];
 
   function menuPosition(rect: { bottom: number; left: number }) {
     return {
@@ -374,6 +379,10 @@ export function NoteEditorScreen({
           const all = await notes.list();
           return all.filter((n) => n.id !== note.id).map((n) => ({ id: n.id, title: noteLabel(n) }));
         }}
+        getTagNames={async () => {
+          const { tags } = await getAppStorage();
+          return tags.listTagNames();
+        }}
       />
       {showSelectionMenu && (
         <div className="selection-menu" style={menuPosition(selectionInfo.rect)}>
@@ -384,11 +393,22 @@ export function NoteEditorScreen({
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              void handleCreateTask();
+              void handleCreateTasks([selectionInfo.text.replace(/\s+/g, ' ').trim()]);
             }}
           >
             + Задача
           </button>
+          {selectionTaskParts.length >= 2 && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void handleCreateTasks(selectionTaskParts);
+              }}
+            >
+              + Задачи ({selectionTaskParts.length})
+            </button>
+          )}
           {!selectionIsMultiline && selectionLinkMode !== null && (
             <button
               onPointerDown={(e) => {

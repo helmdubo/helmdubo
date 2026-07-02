@@ -3,6 +3,7 @@ import type { Note } from '../db/repositories';
 import { getAppStorage } from '../app/storage';
 import { rebuildNoteDerivedIndex } from '../db/reconcile';
 import { refreshNoteLinkTitles } from '../db/refreshLinkTitles';
+import { deleteNoteEverywhere } from '../db/deleteNote';
 import { NotesList } from './NotesList';
 import { NoteEditorScreen } from './NoteEditorScreen';
 
@@ -79,8 +80,10 @@ export function NotesApp({ jumpToNoteId, refreshToken, active = true, onTagClick
   }
 
   async function handleDelete(id: string) {
-    const { notes: noteRepo } = await getAppStorage();
-    await noteRepo.delete(id);
+    const { adapter } = await getAppStorage();
+    // Entity semantics: deleting the note unwraps every [[ref]] to it in
+    // other notes back to plain text and drops now-refless tasks.
+    await deleteNoteEverywhere(adapter, id);
     if (selectedId === id) setSelectedId(null);
     await refresh();
   }

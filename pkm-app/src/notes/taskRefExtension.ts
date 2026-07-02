@@ -159,6 +159,18 @@ export function applyTaskRefEdit(
 }
 
 /**
+ * Replaces the whole document with externally-persisted content (e.g. after
+ * another flow rewrote this note in the DB). Annotated as an internal edit:
+ * the protection filter guards *user* edits from clobbering ref-lines, but
+ * a sync from canonical markdown is authoritative by definition — without
+ * the annotation the filter silently drops the update whenever the note
+ * contains any task refs.
+ */
+export function syncDocFromExternal(view: EditorView, value: string): void {
+  dispatchInternalChange(view, 0, view.state.doc.length, value);
+}
+
+/**
  * Turns a task's ref-line back into ordinary text (§8.6 "remove ref") and
  * returns the resulting full document, or null when this note holds no ref
  * for the task.

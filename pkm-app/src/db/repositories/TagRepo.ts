@@ -97,6 +97,20 @@ export class TagRepo {
     );
   }
 
+  async listTagNames(): Promise<string[]> {
+    const rows = await this.conn.query<{ name: string }>('SELECT name FROM tags ORDER BY name;');
+    return rows.map((r) => r.name);
+  }
+
+  /** Notes whose links (wiki or suggested) point at this target. */
+  async getLinkSourceNoteIds(targetNoteId: string): Promise<string[]> {
+    const rows = await this.conn.query<{ source_note_id: string }>(
+      'SELECT DISTINCT source_note_id FROM note_links WHERE target_note_id = ? AND source_note_id != ?;',
+      [targetNoteId, targetNoteId],
+    );
+    return rows.map((r) => r.source_note_id);
+  }
+
   async getDismissedSuggestionTargets(noteId: string): Promise<string[]> {
     const rows = await this.conn.query<{ raw_target: string }>(
       'SELECT raw_target FROM link_suggestion_dismissals WHERE source_note_id = ?;',

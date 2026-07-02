@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { EditorView, basicSetup } from 'codemirror';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { applyTaskRefEdit, removeTaskRefLine, taskRefExtension } from './taskRefExtension';
+import { applyTaskRefEdit, removeTaskRefLine, syncDocFromExternal, taskRefExtension } from './taskRefExtension';
 import type { TaskWidgetHandlers } from './taskRefExtension';
 import { markupHighlightExtension } from './markupHighlightExtension';
 import type { LinkMenuRequest } from './markupHighlightExtension';
@@ -12,6 +12,8 @@ import { selectionToolbarExtension } from './selectionToolbarExtension';
 import type { SelectionInfo } from './selectionToolbarExtension';
 import { wikiAutocompleteExtension } from './wikiAutocompleteExtension';
 import type { NoteEntryProvider } from './wikiAutocompleteExtension';
+import { tagAutocompleteExtension } from './tagAutocompleteExtension';
+import type { TagNameProvider } from './tagAutocompleteExtension';
 
 export interface MarkdownEditorProps {
   value: string;
@@ -23,6 +25,8 @@ export interface MarkdownEditorProps {
   onSelectionChange?: (info: SelectionInfo | null) => void;
   /** Notes offered by the [[ autocomplete; omit to disable it. */
   getNoteEntries?: NoteEntryProvider;
+  /** Existing tags offered by the # autocomplete; omit to disable it. */
+  getTagNames?: TagNameProvider;
 }
 
 export interface MarkdownEditorHandle {
@@ -46,7 +50,7 @@ const noopTaskHandlers: TaskWidgetHandlers = {
 };
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
-  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onLinkMenu, onTagClick, onSelectionChange, getNoteEntries }, ref) {
+  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onLinkMenu, onTagClick, onSelectionChange, getNoteEntries, getTagNames }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const onChangeRef = useRef(onChange);
@@ -63,6 +67,8 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     onSelectionChangeRef.current = onSelectionChange;
     const getNoteEntriesRef = useRef(getNoteEntries);
     getNoteEntriesRef.current = getNoteEntries;
+    const getTagNamesRef = useRef(getTagNames);
+    getTagNamesRef.current = getTagNames;
 
     useImperativeHandle(
       ref,
@@ -118,6 +124,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           plainCheckboxExtension(),
           livePreviewExtension(),
           wikiAutocompleteExtension(async () => (await getNoteEntriesRef.current?.()) ?? []),
+          tagAutocompleteExtension(async () => (await getTagNamesRef.current?.()) ?? []),
           selectionToolbarExtension({
             onSelectionChange: (info) => onSelectionChangeRef.current?.(info),
           }),
@@ -143,9 +150,7 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
       if (!view) return;
       const current = view.state.doc.toString();
       if (current === value) return;
-      view.dispatch({
-        changes: { from: 0, to: current.length, insert: value },
-      });
+      syncDocFromExternal(view, value);
     }, [value]);
 
     return <div ref={containerRef} className="markdown-editor" />;

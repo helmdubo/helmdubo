@@ -100,6 +100,15 @@ export class TaskRepo {
     return rows[0]?.note_id;
   }
 
+  /** Every task referenced from this note (for cleanup when the note dies). */
+  async getTaskIdsForNote(noteId: string): Promise<string[]> {
+    const rows = await this.conn.query<{ task_id: string }>(
+      'SELECT task_id FROM task_refs WHERE note_id = ?;',
+      [noteId],
+    );
+    return rows.map((r) => r.task_id);
+  }
+
   /** Every note that currently references this task, for pool-driven rewrite
    * operations (rename/delete-from-pool) that must touch every ref-line. */
   async getNoteIds(taskId: string): Promise<string[]> {

@@ -34,14 +34,13 @@ export function App() {
         </button>
       </nav>
       <div style={{ display: view === 'notes' ? 'block' : 'none' }}>
+        {/* Tag clicks inside notes now filter the notes list (Telegram-style
+            tag search) — handled inside NotesApp. The task pool keeps its own
+            tag filter; Cloud's chip still jumps there explicitly. */}
         <NotesApp
           jumpToNoteId={jumpToNoteId}
           refreshToken={notesRefreshToken}
           active={view === 'notes'}
-          onTagClick={(tagName) => {
-            setJumpToTag(tagName);
-            setView('tasks');
-          }}
         />
       </div>
       {view === 'tasks' && (

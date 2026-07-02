@@ -97,6 +97,23 @@ export class TagRepo {
     );
   }
 
+  /** Notes carrying ALL of the given tags (case-insensitive), for the
+   * tag-search field / tag-click filter. Empty input matches nothing. */
+  async getNoteIdsWithAllTags(tagNames: string[]): Promise<string[]> {
+    const names = [...new Set(tagNames.map((n) => n.toLowerCase()))];
+    if (names.length === 0) return [];
+    const placeholders = names.map(() => '?').join(', ');
+    const rows = await this.conn.query<{ note_id: string }>(
+      `SELECT nt.note_id AS note_id
+       FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
+       WHERE lower(t.name) IN (${placeholders})
+       GROUP BY nt.note_id
+       HAVING COUNT(DISTINCT t.id) = ?;`,
+      [...names, names.length],
+    );
+    return rows.map((r) => r.note_id);
+  }
+
   async listTagNames(): Promise<string[]> {
     const rows = await this.conn.query<{ name: string }>('SELECT name FROM tags ORDER BY name;');
     return rows.map((r) => r.name);

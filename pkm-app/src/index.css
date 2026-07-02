@@ -202,6 +202,38 @@
   padding: 0.2em 0;
 }
 
+.notes-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.notes-search input {
+  flex: 1;
+  max-width: 340px;
+  padding: 0.45em 0.7em;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.95em;
+}
+
+.notes-search button {
+  border: none;
+  background: #eee;
+  border-radius: 50%;
+  width: 1.8em;
+  height: 1.8em;
+  cursor: pointer;
+  color: #555;
+}
+
+.notes-search-count {
+  margin: 0 0 4px;
+  color: #777;
+  font-size: 0.85em;
+}
+
 .save-status {
   color: #888;
   font-size: 0.85em;

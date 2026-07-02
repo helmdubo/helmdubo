@@ -47,6 +47,14 @@ function overlapsAny(from: number, to: number, ranges: Array<readonly [number, n
   return ranges.some(([excludedFrom, excludedTo]) => from < excludedTo && to > excludedFrom);
 }
 
+/** A lone "#" (or "##…") with no text yet parses as an empty ATX heading —
+ * per CommonMark that's legal, but styling it as a huge heading while the
+ * user is really starting to type a #tag is jarring. Empty headings get no
+ * heading treatment. */
+function isEmptyHeading(view: EditorView, from: number, to: number): boolean {
+  return view.state.doc.sliceString(from, to).replace(/^#+[ \t]*/, '').length === 0;
+}
+
 function buildStyleDecorations(view: EditorView): DecorationSet {
   const excluded = findTaskRefLines(view.state.doc.toString()).map((m): [number, number] => [
     m.from,
@@ -57,9 +65,9 @@ function buildStyleDecorations(view: EditorView): DecorationSet {
   syntaxTree(view.state).iterate({
     enter: (node) => {
       const contentClass = CONTENT_CLASS[node.name];
-      if (contentClass && !overlapsAny(node.from, node.to, excluded)) {
-        ranges.push({ from: node.from, to: node.to, className: contentClass });
-      }
+      if (!contentClass || overlapsAny(node.from, node.to, excluded)) return;
+      if (node.name.startsWith('ATXHeading') && isEmptyHeading(view, node.from, node.to)) return;
+      ranges.push({ from: node.from, to: node.to, className: contentClass });
     },
   });
   ranges.sort((a, b) => a.from - b.from || b.to - a.to);
@@ -83,6 +91,10 @@ function buildHideDecorations(view: EditorView): DecorationSet {
     enter: (node) => {
       if (!MARK_NODE_NAMES.has(node.name)) return;
       if (overlapsAny(node.from, node.to, excluded)) return;
+      if (node.name === 'HeaderMark') {
+        const heading = node.node.parent;
+        if (heading && isEmptyHeading(view, heading.from, heading.to)) return;
+      }
 
       const parent = node.node.parent;
       const revealFrom = parent?.from ?? node.from;

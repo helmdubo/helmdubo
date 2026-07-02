@@ -6,6 +6,7 @@ import { refreshNoteLinkTitles } from '../db/refreshLinkTitles';
 import { deleteNoteEverywhere } from '../db/deleteNote';
 import { NotesList } from './NotesList';
 import { NoteEditorScreen } from './NoteEditorScreen';
+import { parseTagQuery } from './noteSearch';
 
 export interface NotesAppProps {
   /** Set (to a new value) to select a note from outside, e.g. the task pool. */
@@ -23,13 +24,15 @@ export interface NotesAppProps {
    * autosave via the editor screen's own cleanup, and remounting fresh on
    * return guarantees it starts from the latest saved content. */
   active?: boolean;
-  /** Navigate to the task pool, pre-filtered to this tag. */
-  onTagClick: (tagName: string) => void;
 }
 
-export function NotesApp({ jumpToNoteId, refreshToken, active = true, onTagClick }: NotesAppProps) {
+export function NotesApp({ jumpToNoteId, refreshToken, active = true }: NotesAppProps) {
   const [notes, setNotes] = useState<Note[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Telegram-style tag search: filters the notes list to notes carrying
+   * every tag in the query. Fed by typing or by clicking a #tag in a note. */
+  const [tagQuery, setTagQuery] = useState('');
+  const [tagMatchIds, setTagMatchIds] = useState<Set<string> | null>(null);
 
   async function refresh() {
     const { notes: noteRepo } = await getAppStorage();
@@ -47,6 +50,31 @@ export function NotesApp({ jumpToNoteId, refreshToken, active = true, onTagClick
   useEffect(() => {
     if (jumpToNoteId) setSelectedId(jumpToNoteId);
   }, [jumpToNoteId]);
+
+  useEffect(() => {
+    const tagNames = parseTagQuery(tagQuery);
+    if (tagNames.length === 0) {
+      setTagMatchIds(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const { tags } = await getAppStorage();
+      const ids = await tags.getNoteIdsWithAllTags(tagNames);
+      if (!cancelled) setTagMatchIds(new Set(ids));
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // `notes` is a dependency so fresh saves (which re-reconcile note_tags)
+    // re-run the filter without retyping the query.
+  }, [tagQuery, notes]);
+
+  /** Clicking a #tag inside a note searches notes by that tag. */
+  function handleTagClick(tagName: string) {
+    setTagQuery(`#${tagName}`);
+    setSelectedId(null);
+  }
 
   /** M-Ref lazy refresh (v3 §8.5 pattern): opening a note re-syncs the
    * display titles of its id-form [[links]] with the current titles of
@@ -101,11 +129,30 @@ export function NotesApp({ jumpToNoteId, refreshToken, active = true, onTagClick
   }
 
   const selectedNote = notes.find((n) => n.id === selectedId) ?? null;
+  const visibleNotes = tagMatchIds === null ? notes : notes.filter((n) => tagMatchIds.has(n.id));
 
   return (
     <div className="notes-app">
+      <div className="notes-search">
+        <input
+          type="search"
+          placeholder="Поиск: #тег #ещё-тег"
+          value={tagQuery}
+          onChange={(e) => setTagQuery(e.target.value)}
+        />
+        {tagQuery && (
+          <button aria-label="Сбросить поиск" onClick={() => setTagQuery('')}>
+            ×
+          </button>
+        )}
+      </div>
+      {tagMatchIds !== null && (
+        <p className="notes-search-count">
+          {visibleNotes.length === 0 ? 'Ничего не найдено.' : `Найдено: ${visibleNotes.length}`}
+        </p>
+      )}
       <NotesList
-        notes={notes}
+        notes={visibleNotes}
         selectedId={selectedId}
         onSelect={setSelectedId}
         onCreate={() => void handleCreate()}
@@ -118,7 +165,7 @@ export function NotesApp({ jumpToNoteId, refreshToken, active = true, onTagClick
           onSave={handleSave}
           onNavigateToNote={setSelectedId}
           onNotesChanged={refresh}
-          onTagClick={onTagClick}
+          onTagClick={handleTagClick}
         />
       ) : selectedNote ? null : (
         <p>Select a note, or create a new one.</p>

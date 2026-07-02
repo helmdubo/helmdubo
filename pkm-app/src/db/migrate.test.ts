@@ -45,6 +45,7 @@ const EXPECTED_TABLES = [
   'note_tags',
   'task_tags',
   'note_links',
+  'link_suggestion_dismissals',
 ];
 
 const EXPECTED_INDEXES = [
@@ -94,6 +95,50 @@ describe('migrate', () => {
     await migrate(conn);
     const second = await getAppMeta(conn, 'device_id');
     expect(second).toBe(first);
+  });
+
+  it('upgrades a v1 database in place: adds link_suggestion_dismissals without losing data', async () => {
+    const conn = createConnection();
+    await migrate(conn);
+    // Emulate a v1 database: the dismissals table doesn't exist yet, but
+    // user data does.
+    await conn.exec('DROP TABLE link_suggestion_dismissals;');
+    const now = Date.now();
+    await conn.exec(
+      'INSERT INTO notes (id, title, markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?);',
+      ['note-1', 'Kept', 'body', now, now],
+    );
+
+    await migrate(conn);
+
+    const tables = await conn.query<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='link_suggestion_dismissals';",
+    );
+    expect(tables).toHaveLength(1);
+    const notes = await conn.query<{ title: string }>('SELECT title FROM notes;');
+    expect(notes).toEqual([{ title: 'Kept' }]);
+    expect(await getAppMeta(conn, 'schema_version')).toBe(SCHEMA_VERSION);
+  });
+
+  it('cascades a note delete to its dismissals', async () => {
+    const conn = createConnection();
+    await migrate(conn);
+    const now = Date.now();
+    await conn.exec(
+      'INSERT INTO notes (id, title, markdown, created_at, updated_at) VALUES (?, ?, ?, ?, ?);',
+      ['note-1', 'Note', 'body', now, now],
+    );
+    await conn.exec(
+      'INSERT INTO link_suggestion_dismissals (source_note_id, raw_target, created_at) VALUES (?, ?, ?);',
+      ['note-1', 'Some Title', now],
+    );
+
+    await conn.exec('DELETE FROM notes WHERE id = ?;', ['note-1']);
+
+    const rows = await conn.query<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM link_suggestion_dismissals;',
+    );
+    expect(rows[0]?.n).toBe(0);
   });
 
   it('cascades deletes with foreign_keys=ON: note -> task_refs and task -> subtasks', async () => {

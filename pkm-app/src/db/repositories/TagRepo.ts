@@ -97,9 +97,64 @@ export class TagRepo {
     );
   }
 
+  /** Notes carrying ALL of the given tags (case-insensitive), for the
+   * tag-search field / tag-click filter. Empty input matches nothing. */
+  async getNoteIdsWithAllTags(tagNames: string[]): Promise<string[]> {
+    const names = [...new Set(tagNames.map((n) => n.toLowerCase()))];
+    if (names.length === 0) return [];
+    const placeholders = names.map(() => '?').join(', ');
+    const rows = await this.conn.query<{ note_id: string }>(
+      `SELECT nt.note_id AS note_id
+       FROM note_tags nt JOIN tags t ON t.id = nt.tag_id
+       WHERE lower(t.name) IN (${placeholders})
+       GROUP BY nt.note_id
+       HAVING COUNT(DISTINCT t.id) = ?;`,
+      [...names, names.length],
+    );
+    return rows.map((r) => r.note_id);
+  }
+
+  async listTagNames(): Promise<string[]> {
+    const rows = await this.conn.query<{ name: string }>('SELECT name FROM tags ORDER BY name;');
+    return rows.map((r) => r.name);
+  }
+
+  /** Notes whose links (wiki or suggested) point at this target. */
+  async getLinkSourceNoteIds(targetNoteId: string): Promise<string[]> {
+    const rows = await this.conn.query<{ source_note_id: string }>(
+      'SELECT DISTINCT source_note_id FROM note_links WHERE target_note_id = ? AND source_note_id != ?;',
+      [targetNoteId, targetNoteId],
+    );
+    return rows.map((r) => r.source_note_id);
+  }
+
+  async getDismissedSuggestionTargets(noteId: string): Promise<string[]> {
+    const rows = await this.conn.query<{ raw_target: string }>(
+      'SELECT raw_target FROM link_suggestion_dismissals WHERE source_note_id = ?;',
+      [noteId],
+    );
+    return rows.map((r) => r.raw_target);
+  }
+
+  /** Persistently hides an unlinked-mention suggestion (delta §B.2 "Скрыть").
+   * Also drops the current suggested index row so the change is visible
+   * without waiting for the next reconcile. */
+  async dismissSuggestion(noteId: string, rawTarget: string): Promise<void> {
+    await this.conn.exec(
+      'INSERT OR IGNORE INTO link_suggestion_dismissals (source_note_id, raw_target, created_at) VALUES (?, ?, ?);',
+      [noteId, rawTarget, Date.now()],
+    );
+    await this.conn.exec(
+      "DELETE FROM note_links WHERE source_note_id = ? AND raw_target = ? AND link_type = 'suggested';",
+      [noteId, rawTarget],
+    );
+  }
+
   async getBacklinks(noteId: string): Promise<Array<{ noteId: string; title: string | null }>> {
+    // DISTINCT: an id-form wiki row (raw_target 'n:<id>') and a suggested
+    // row (raw_target = title) can both point a source at the same target.
     return this.conn.query<{ noteId: string; title: string | null }>(
-      `SELECT n.id AS noteId, n.title AS title
+      `SELECT DISTINCT n.id AS noteId, n.title AS title, n.updated_at
        FROM note_links nl
        JOIN notes n ON n.id = nl.source_note_id
        WHERE nl.target_note_id = ?

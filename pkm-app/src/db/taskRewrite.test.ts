@@ -6,7 +6,7 @@ import { migrate } from './migrate';
 import { NoteRepo } from './repositories/NoteRepo';
 import { TagRepo } from './repositories/TagRepo';
 import { TaskRepo } from './repositories/TaskRepo';
-import { renameTaskEverywhere, deleteTaskEverywhere } from './taskRewrite';
+import { renameTaskEverywhere, deleteTaskEverywhere, setTaskStatusEverywhere } from './taskRewrite';
 
 class InMemoryConnection implements StorageConnection {
   constructor(private readonly db: Database) {}
@@ -70,6 +70,28 @@ describe('renameTaskEverywhere', () => {
       { note_id: 'n1', reason: 'edit-from-pool' },
       { note_id: 'n2', reason: 'edit-from-pool' },
     ]);
+  });
+});
+
+describe('setTaskStatusEverywhere', () => {
+  it('updates tasks.status and rewrites every ref-line checkbox, keeping inline tags', async () => {
+    const { conn, notes, tasks } = await setup();
+    await notes.create({ id: 'n1', markdown: '- [ ] Call bank #armenia ^task-x' });
+    await notes.create({ id: 'n2', markdown: 'text\n- [ ] Call bank #armenia ^task-x' });
+    await conn.exec(
+      "INSERT INTO tasks (id, title, status, created_at, updated_at) VALUES ('x', 'Call bank', 'open', 0, 0);",
+    );
+    await tasks.addRef('x', 'n1');
+    await tasks.addRef('x', 'n2');
+
+    await setTaskStatusEverywhere(conn, 'x', 'done');
+
+    expect((await tasks.get('x'))?.status).toBe('done');
+    expect((await notes.get('n1'))?.markdown).toBe('- [x] Call bank #armenia ^task-x');
+    expect((await notes.get('n2'))?.markdown).toBe('text\n- [x] Call bank #armenia ^task-x');
+
+    const revisions = await conn.query<{ reason: string }>('SELECT reason FROM note_revisions;');
+    expect(revisions).toHaveLength(2);
   });
 });
 

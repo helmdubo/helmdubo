@@ -25,6 +25,18 @@ export function renderTaskRefLine(data: TaskRefLineData): string {
 }
 
 /**
+ * Splits a selected block into individual task titles: parts separated by
+ * `;` or `,`, whitespace-normalized, empties dropped. Used by the
+ * «+ Задачи (N)» selection action.
+ */
+export function splitSelectionIntoTaskTitles(text: string): string[] {
+  return text
+    .split(/[;,]/)
+    .map((part) => part.replace(/\s+/g, ' ').trim())
+    .filter((part) => part.length > 0);
+}
+
+/**
  * Scans a document's lines for valid task-ref lines. Per brief §4.2, a
  * duplicate ^task-id within the same note is only valid on its first
  * occurrence; later duplicates are reported as plain text (not returned).

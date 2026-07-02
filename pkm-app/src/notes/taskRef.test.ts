@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { findTaskRefLines, parseTaskRefLine, renderTaskRefLine } from './taskRef';
+import {
+  findTaskRefLines,
+  parseTaskRefLine,
+  renderTaskRefLine,
+  splitSelectionIntoTaskTitles,
+} from './taskRef';
+
+describe('splitSelectionIntoTaskTitles', () => {
+  it('splits by semicolons and commas, trimming whitespace', () => {
+    expect(splitSelectionIntoTaskTitles('позвонить банку; оплатить счёт, купить билеты')).toEqual([
+      'позвонить банку',
+      'оплатить счёт',
+      'купить билеты',
+    ]);
+  });
+
+  it('drops empty parts and collapses inner whitespace', () => {
+    expect(splitSelectionIntoTaskTitles('a;;  b   c ,')).toEqual(['a', 'b c']);
+  });
+
+  it('returns the whole text as one part when there are no separators', () => {
+    expect(splitSelectionIntoTaskTitles('single task')).toEqual(['single task']);
+  });
+
+  it('returns empty array for blank input', () => {
+    expect(splitSelectionIntoTaskTitles('  ; ,  ')).toEqual([]);
+  });
+});
 
 describe('parseTaskRefLine', () => {
   it('parses an open task ref line', () => {

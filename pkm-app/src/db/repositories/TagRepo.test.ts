@@ -119,6 +119,21 @@ describe('TagRepo', () => {
     expect(rows.map((r) => r.name)).toEqual(['b', 'c']);
   });
 
+  it('getNoteIdsWithAllTags() returns notes carrying ALL given tags, case-insensitive', async () => {
+    const { repo, conn } = await createRepo();
+    await createNote(conn, 'n1');
+    await createNote(conn, 'n2');
+    await createNote(conn, 'n3');
+    await repo.setNoteTags('n1', ['armenia', 'banks']);
+    await repo.setNoteTags('n2', ['armenia']);
+    await repo.setNoteTags('n3', ['banks']);
+
+    expect((await repo.getNoteIdsWithAllTags(['ARMENIA'])).sort()).toEqual(['n1', 'n2']);
+    expect(await repo.getNoteIdsWithAllTags(['armenia', '#no-such'])).toEqual([]);
+    expect(await repo.getNoteIdsWithAllTags(['Armenia', 'Banks'])).toEqual(['n1']);
+    expect(await repo.getNoteIdsWithAllTags([])).toEqual([]);
+  });
+
   it('getTagsForTask() returns the tags bound to a task, sorted by name', async () => {
     const { repo, conn } = await createRepo();
     await createTask(conn, 'task-1');

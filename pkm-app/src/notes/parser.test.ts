@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { extractTags, extractWikiLinks, splitTitleAndTags } from './parser';
+import {
+  extractTags,
+  extractWikiLinks,
+  findWikiLinkOccurrences,
+  parseWikiLinkInner,
+  renderWikiLink,
+  splitTitleAndTags,
+} from './parser';
 
 describe('extractTags', () => {
   it('finds tags anywhere in the text', () => {
@@ -33,28 +40,78 @@ describe('extractTags', () => {
 });
 
 describe('extractWikiLinks', () => {
-  it('finds wiki link targets', () => {
+  it('finds title-form wiki link targets', () => {
     expect(extractWikiLinks('See [[Project Alpha]] and [[Banks]]')).toEqual([
-      'Project Alpha',
-      'Banks',
+      { inner: 'Project Alpha', title: 'Project Alpha', noteId: null },
+      { inner: 'Banks', title: 'Banks', noteId: null },
     ]);
   });
 
-  it('dedupes repeated links', () => {
-    expect(extractWikiLinks('[[A]] then [[A]] again')).toEqual(['A']);
+  it('parses id-form links: id is canonical, title is display', () => {
+    expect(extractWikiLinks('see [[Project Alpha ^n:abc-123]]')).toEqual([
+      { inner: 'Project Alpha ^n:abc-123', title: 'Project Alpha', noteId: 'abc-123' },
+    ]);
+  });
+
+  it('dedupes id-form links by id even when display titles differ', () => {
+    const md = '[[Old Name ^n:x1]] and [[New Name ^n:x1]]';
+    const links = extractWikiLinks(md);
+    expect(links).toHaveLength(1);
+    expect(links[0]?.noteId).toBe('x1');
+  });
+
+  it('dedupes repeated title-form links', () => {
+    expect(extractWikiLinks('[[A]] then [[A]] again')).toHaveLength(1);
   });
 
   it('ignores links inside fenced code blocks', () => {
     const md = '```\n[[not a link]]\n```\n[[Real Link]]';
-    expect(extractWikiLinks(md)).toEqual(['Real Link']);
+    expect(extractWikiLinks(md).map((l) => l.title)).toEqual(['Real Link']);
   });
 
   it('ignores links inside inline code spans', () => {
-    expect(extractWikiLinks('`[[not a link]]` but [[Real Link]] is')).toEqual(['Real Link']);
+    expect(extractWikiLinks('`[[not a link]]` but [[Real Link]] is').map((l) => l.title)).toEqual([
+      'Real Link',
+    ]);
   });
 
   it('returns empty array when there are no links', () => {
     expect(extractWikiLinks('no links here')).toEqual([]);
+  });
+});
+
+describe('parseWikiLinkInner / renderWikiLink', () => {
+  it('round-trips: render then parse', () => {
+    const rendered = renderWikiLink('Проект Альфа', 'id-1');
+    expect(rendered).toBe('[[Проект Альфа ^n:id-1]]');
+    expect(parseWikiLinkInner('Проект Альфа ^n:id-1')).toEqual({
+      inner: 'Проект Альфа ^n:id-1',
+      title: 'Проект Альфа',
+      noteId: 'id-1',
+    });
+  });
+
+  it('treats text without an anchor as title-form', () => {
+    expect(parseWikiLinkInner('Just a title')).toEqual({
+      inner: 'Just a title',
+      title: 'Just a title',
+      noteId: null,
+    });
+  });
+});
+
+describe('findWikiLinkOccurrences', () => {
+  it('reports positions of the whole [[...]] span', () => {
+    const md = 'x [[A ^n:id1]] y [[B]]';
+    const occurrences = findWikiLinkOccurrences(md);
+    expect(occurrences).toHaveLength(2);
+    expect(md.slice(occurrences[0]!.from, occurrences[0]!.to)).toBe('[[A ^n:id1]]');
+    expect(md.slice(occurrences[1]!.from, occurrences[1]!.to)).toBe('[[B]]');
+  });
+
+  it('skips occurrences inside code', () => {
+    const md = '`[[A]]` and\n```\n[[B]]\n```\n[[C]]';
+    expect(findWikiLinkOccurrences(md).map((o) => o.title)).toEqual(['C']);
   });
 });
 

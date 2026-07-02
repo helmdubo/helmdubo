@@ -92,6 +92,33 @@ describe('rebuildNoteDerivedIndex', () => {
     expect(rows[0]?.target_note_id).toBe('target');
   });
 
+  it('resolves an id-form link by canonical id, ignoring a stale display title', async () => {
+    const { conn, notes } = await setup();
+    await notes.create({ id: 'target', title: 'Renamed Since', markdown: '' });
+    await notes.create({ id: 'n1', markdown: 'see [[Old Display Title ^n:target]]' });
+
+    await rebuildNoteDerivedIndex(conn, 'n1');
+
+    const rows = await conn.query<{ raw_target: string; target_note_id: string | null; link_type: string }>(
+      'SELECT raw_target, target_note_id, link_type FROM note_links WHERE source_note_id = ?;',
+      ['n1'],
+    );
+    expect(rows).toEqual([{ raw_target: 'n:target', target_note_id: 'target', link_type: 'wiki' }]);
+  });
+
+  it('keeps an id-form link whose target was deleted as a dangling ref (target NULL)', async () => {
+    const { conn, notes } = await setup();
+    await notes.create({ id: 'n1', markdown: '[[Ghost ^n:missing]]' });
+
+    await rebuildNoteDerivedIndex(conn, 'n1');
+
+    const rows = await conn.query<{ raw_target: string; target_note_id: string | null }>(
+      'SELECT raw_target, target_note_id FROM note_links WHERE source_note_id = ?;',
+      ['n1'],
+    );
+    expect(rows).toEqual([{ raw_target: 'n:missing', target_note_id: null }]);
+  });
+
   it('re-running clears and rebuilds tags/links instead of accumulating duplicates', async () => {
     const { conn, notes } = await setup();
     await notes.create({ id: 'n1', markdown: '#a [[Link]]' });
@@ -158,5 +185,116 @@ describe('rebuildNoteDerivedIndex', () => {
   it('does nothing and does not throw for a non-existent note id', async () => {
     const { conn } = await setup();
     await expect(rebuildNoteDerivedIndex(conn, 'missing')).resolves.toBeUndefined();
+  });
+});
+
+describe('rebuildNoteDerivedIndex — suggested links (delta §B.2)', () => {
+  async function getLinks(conn: StorageConnection, sourceId: string) {
+    return conn.query<{ raw_target: string; target_note_id: string | null; link_type: string }>(
+      'SELECT raw_target, target_note_id, link_type FROM note_links WHERE source_note_id = ? ORDER BY raw_target;',
+      [sourceId],
+    );
+  }
+
+  it('indexes a prose mention of another note title as a suggested link', async () => {
+    const { conn, notes } = await setup();
+    await notes.create({ id: 'target', title: 'Project Alpha', markdown: 'the target' });
+    await notes.create({ id: 'n1', markdown: 'we discussed project alpha yesterday' });
+
+    await rebuildNoteDerivedIndex(conn, 'n1');
+
+    expect(await getLinks(conn, 'n1')).toEqual([
+      { raw_target: 'Project Alpha', target_note_id: 'target', link_type: 'suggested' },
+    ]);
+  });
+
+  it('excludes code blocks, existing [[links]], self-mention and task-ref lines', async () => {
+    const { conn, notes, tasks } = await setup();
+    await notes.create({ id: 'alpha', title: 'Project Alpha', markdown: '' });
+    await notes.create({ id: 'beta', title: 'Beta Plan', markdown: '' });
+    await notes.create({ id: 'n1', title: 'My Note', markdown: 'placeholder' });
+    const task = await tasks.createWithFirstRef('n1', 'placeholder task');
+    await notes.update('n1', {
+      markdown: [
+        'see [[Project Alpha]] explicitly',
+        '`Beta Plan` in code',
+        'My Note mentions itself',
+        `- [ ] Beta Plan review ^task-${task.id}`,
+      ].join('\n'),
+    });
+
+    await rebuildNoteDerivedIndex(conn, 'n1');
+
+    // Only the explicit wiki link survives; no suggested rows at all.
+    expect(await getLinks(conn, 'n1')).toEqual([
+      { raw_target: 'Project Alpha', target_note_id: 'alpha', link_type: 'wiki' },
+    ]);
+  });
+
+  it('an explicit wiki link wins over a suggestion for the same target', async () => {
+    const { conn, notes } = await setup();
+    await notes.create({ id: 'alpha', title: 'Project Alpha', markdown: '' });
+    await notes.create({ id: 'n1', markdown: '[[Project Alpha]] and later Project Alpha in prose' });
+
+    await rebuildNoteDerivedIndex(conn, 'n1');
+
+    expect(await getLinks(conn, 'n1')).toEqual([
+      { raw_target: 'Project Alpha', target_note_id: 'alpha', link_type: 'wiki' },
+    ]);
+  });
+
+  it('an id-form wiki link also suppresses the suggestion for the same target', async () => {
+    const { conn, notes } = await setup();
+    await notes.create({ id: 'alpha', title: 'Project Alpha', markdown: '' });
+    await notes.create({
+      id: 'n1',
+      markdown: '[[Project Alpha ^n:alpha]] and later Project Alpha in prose',
+    });
+
+    await rebuildNoteDerivedIndex(conn, 'n1');
+
+    expect(await getLinks(conn, 'n1')).toEqual([
+      { raw_target: 'n:alpha', target_note_id: 'alpha', link_type: 'wiki' },
+    ]);
+  });
+
+  it('skips dismissed pairs, and dismissal survives rebuilds', async () => {
+    const { conn, notes, tags } = await setup();
+    await notes.create({ id: 'alpha', title: 'Project Alpha', markdown: '' });
+    await notes.create({ id: 'n1', markdown: 'about Project Alpha' });
+    await rebuildNoteDerivedIndex(conn, 'n1');
+    expect(await getLinks(conn, 'n1')).toHaveLength(1);
+
+    await tags.dismissSuggestion('n1', 'Project Alpha');
+    expect(await getLinks(conn, 'n1')).toEqual([]);
+
+    await rebuildNoteDerivedIndex(conn, 'n1');
+    expect(await getLinks(conn, 'n1')).toEqual([]);
+  });
+
+  it('resets and rebuilds suggested rows on every reconcile (derived index, INV-2)', async () => {
+    const { conn, notes } = await setup();
+    await notes.create({ id: 'alpha', title: 'Project Alpha', markdown: '' });
+    await notes.create({ id: 'n1', markdown: 'about Project Alpha' });
+    await rebuildNoteDerivedIndex(conn, 'n1');
+    await rebuildNoteDerivedIndex(conn, 'n1');
+    expect(await getLinks(conn, 'n1')).toHaveLength(1);
+
+    await notes.update('n1', { markdown: 'no mentions anymore' });
+    await rebuildNoteDerivedIndex(conn, 'n1');
+    expect(await getLinks(conn, 'n1')).toEqual([]);
+  });
+
+  it('INV-9: rebuild never mutates notes.markdown, byte for byte', async () => {
+    const { conn, notes } = await setup();
+    await notes.create({ id: 'alpha', title: 'Project Alpha', markdown: '' });
+    const markdown =
+      'prose Project Alpha  #tag\n```\ncode Project Alpha\n```\n[[Project Alpha]] end\n';
+    await notes.create({ id: 'n1', markdown });
+
+    await rebuildNoteDerivedIndex(conn, 'n1');
+
+    const after = await notes.get('n1');
+    expect(after?.markdown).toBe(markdown);
   });
 });

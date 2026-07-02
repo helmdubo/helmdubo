@@ -15,13 +15,68 @@
   cursor: pointer;
 }
 
+/* Floating menus over the editor: selection actions (+ Задача / + Заметка /
+   Привязать) and the task long-press menu share one look. */
+.selection-menu,
+.task-menu,
+.link-menu {
+  position: fixed;
+  z-index: 1001;
+  display: flex;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.selection-menu button,
+.task-menu button,
+.link-menu button {
+  border: none;
+  background: #f4f0fb;
+  border-radius: 4px;
+  padding: 0.45em 0.8em;
+  cursor: pointer;
+  font-size: 0.9em;
+  touch-action: manipulation;
+}
+
+/* Task block reads as highlighted text: tinted pill, italic title, pointer
+   affordance. Done = same block, struck through and dimmed. */
 .task-ref-widget {
   display: inline-flex;
   align-items: center;
-  gap: 0.35em;
-  background: #f5f5f0;
+  gap: 0.4em;
+  background: #fdf3e4;
   border-radius: 4px;
-  padding: 1px 6px;
+  padding: 1px 7px;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.task-ref-mark {
+  color: #d9480f;
+  font-size: 0.9em;
+}
+
+.task-ref-title {
+  font-style: italic;
+}
+
+.task-ref-done {
+  opacity: 0.65;
+}
+
+.task-ref-done .task-ref-title {
+  text-decoration: line-through;
+}
+
+.task-ref-done .task-ref-mark {
+  color: #54a24b;
 }
 
 .cm-pkm-h1,
@@ -66,27 +121,177 @@
   padding-left: 0.5em;
 }
 
-.selection-toolbar {
+.task-drawer {
   position: fixed;
-  left: 50%;
-  bottom: max(16px, env(safe-area-inset-bottom, 16px));
-  transform: translateX(-50%);
-  z-index: 1000;
-  background: #222;
-  color: #fff;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  z-index: 1002;
+  background: #fff;
+  border-left: 1px solid #ddd;
+  box-shadow: -2px 0 12px rgba(0, 0, 0, 0.15);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+/* Bottom sheet on narrow screens (delta §B.3). */
+@media (max-width: 767px) {
+  .task-drawer {
+    top: auto;
+    left: 0;
+    width: auto;
+    max-height: 55vh;
+    border-left: none;
+    border-top: 1px solid #ddd;
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.15);
+  }
+}
+
+.task-drawer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.task-drawer-close {
   border: none;
-  border-radius: 6px;
-  padding: 0.6em 1em;
-  min-height: 2.2em;
-  font-size: 0.9em;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  background: none;
+  font-size: 1.3em;
   cursor: pointer;
+  color: #666;
+}
+
+.task-drawer-title {
+  font-size: 1.05em;
+  font-weight: 600;
+  padding: 0.3em 0.4em;
+}
+
+.task-drawer-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: #555;
+  font-size: 0.9em;
+}
+
+.task-drawer-notes h3 {
+  margin: 0.5em 0 0.3em;
+  font-size: 0.9em;
+  color: #555;
+}
+
+.task-drawer-notes ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.task-drawer-notes button {
+  border: none;
+  background: none;
+  color: #6a3fb0;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0.2em 0;
+}
+
+.notes-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.notes-search input {
+  flex: 1;
+  max-width: 340px;
+  padding: 0.45em 0.7em;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 0.95em;
+}
+
+.notes-search button {
+  border: none;
+  background: #eee;
+  border-radius: 50%;
+  width: 1.8em;
+  height: 1.8em;
+  cursor: pointer;
+  color: #555;
+}
+
+.notes-search-count {
+  margin: 0 0 4px;
+  color: #777;
+  font-size: 0.85em;
 }
 
 .save-status {
   color: #888;
   font-size: 0.85em;
   margin: 0 0.5em;
+}
+
+/* Cloud view theme hooks: override these custom properties (e.g. in a dark
+   theme) to restyle the canvas without touching code. */
+:root {
+  --cloud-bg: #ffffff;
+  --cloud-node-tagless: #a5adb5;
+  --cloud-edge-wiki: rgba(80, 80, 110, 0.45);
+  --cloud-edge-suggested: rgba(110, 110, 140, 0.28);
+  --cloud-label: #444444;
+  --cloud-tooltip-bg: rgba(25, 25, 30, 0.88);
+  --cloud-tooltip-text: #ffffff;
+  --cloud-badge-bg: #d9480f;
+  --cloud-badge-text: #ffffff;
+}
+
+.cloud-view {
+  position: relative;
+  height: min(75vh, 720px);
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cloud-view canvas {
+  touch-action: none;
+}
+
+.cloud-empty {
+  padding: 2em 1.5em;
+  color: #666;
+  text-align: center;
+}
+
+.cloud-tag-chip {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 16px;
+  padding: 4px 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  font-size: 0.9em;
+}
+
+.cloud-tag-chip button {
+  border: none;
+  background: none;
+  color: #6a3fb0;
+  cursor: pointer;
 }
 
 .pkm-error-banner {

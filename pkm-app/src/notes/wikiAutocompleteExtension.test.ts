@@ -8,7 +8,9 @@ function makeContext(doc: string, pos = doc.length, explicit = false): Completio
 }
 
 function sourceWith(titles: string[]) {
-  return wikiCompletionSource(async () => titles);
+  return wikiCompletionSource(async () =>
+    titles.map((title, i) => ({ id: `id-${i}`, title })),
+  );
 }
 
 describe('wikiCompletionSource', () => {

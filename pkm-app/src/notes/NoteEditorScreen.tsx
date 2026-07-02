@@ -10,6 +10,9 @@ import { Backlinks } from './Backlinks';
 import type { BacklinkEntry } from './Backlinks';
 import { noteLabel, resolveNoteLink } from './noteLabel';
 import type { SelectionInfo } from './selectionToolbarExtension';
+import type { LinkMenuRequest } from './markupHighlightExtension';
+import { renderWikiLink } from './parser';
+import type { WikiLinkRef } from './parser';
 import { TaskDrawer } from '../tasks/TaskDrawer';
 
 export interface NoteEditorScreenProps {
@@ -54,6 +57,7 @@ export function NoteEditorScreen({
    * would create a new one ('new'), or is still being resolved (null). */
   const [selectionLinkMode, setSelectionLinkMode] = useState<'exists' | 'new' | null>(null);
   const [taskMenu, setTaskMenu] = useState<TaskMenuRequest | null>(null);
+  const [linkMenu, setLinkMenu] = useState<LinkMenuRequest | null>(null);
   const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
   /** One-shot guard for selection-menu actions: a fast double-tap must not
    * run the action twice (e.g. create two notes). */
@@ -123,6 +127,7 @@ export function NoteEditorScreen({
 
   function handleEditorChange(newMarkdown: string) {
     if (taskMenu) setTaskMenu(null);
+    if (linkMenu) setLinkMenu(null);
     setMarkdown(newMarkdown);
   }
 
@@ -196,12 +201,12 @@ export function NoteEditorScreen({
       const { from, to, text } = trimSelection(info);
       if (!text || text.includes('\n')) return;
       const { notes } = await getAppStorage();
-      const existing = await resolveNoteLink(notes, text);
-      if (!existing) {
-        await notes.create({ id: crypto.randomUUID(), title: text, markdown: '' });
-      }
+      let target = await resolveNoteLink(notes, text);
+      target ??= await notes.create({ id: crypto.randomUUID(), title: text, markdown: '' });
       const before = markdownRef.current;
-      const newMarkdown = editorRef.current?.replaceRange(from, to, `[[${text}]]`);
+      // Id-form ref (M-Ref): the id is the canonical reference, the text is
+      // just the display cache — renaming the target never breaks it.
+      const newMarkdown = editorRef.current?.replaceRange(from, to, renderWikiLink(text, target.id));
       if (newMarkdown != null && newMarkdown !== before) {
         await persistMarkdown(newMarkdown);
       }
@@ -211,14 +216,17 @@ export function NoteEditorScreen({
     }
   }
 
-  async function handleLinkClick(rawTarget: string) {
+  async function handleLinkClick(linkRef: WikiLinkRef) {
     const { adapter, notes } = await getAppStorage();
-    let target = await resolveNoteLink(notes, rawTarget);
+    // Id-form: resolve by canonical id; the display title in the text may be
+    // stale. Fall back to title resolution if the target note was deleted.
+    let target = linkRef.noteId ? await notes.get(linkRef.noteId) : undefined;
+    target ??= await resolveNoteLink(notes, linkRef.title);
     if (!target) {
       // Frontier link (delta §B.1): the target doesn't exist yet — creating
       // it is an explicit user action, not an automatic side effect.
-      if (!window.confirm(`Создать заметку «${rawTarget}»?`)) return;
-      target = await notes.create({ id: crypto.randomUUID(), title: rawTarget, markdown: '' });
+      if (!window.confirm(`Создать заметку «${linkRef.title}»?`)) return;
+      target = await notes.create({ id: crypto.randomUUID(), title: linkRef.title, markdown: '' });
       await rebuildNoteDerivedIndex(adapter, note.id);
       await rebuildNoteDerivedIndex(adapter, target.id);
     }
@@ -227,6 +235,27 @@ export function NoteEditorScreen({
     // placeholder renders instead of navigating anywhere.
     await onNotesChanged();
     onNavigateToNote(target.id);
+  }
+
+  /** «Отвязать» from the link menu: the [[...]] shortcut becomes plain text;
+   * the note object itself lives on. */
+  async function handleLinkUnwrap() {
+    const menu = linkMenu;
+    if (!menu) return;
+    setLinkMenu(null);
+    const before = markdownRef.current;
+    // Menus close on any doc change, so the captured range is still valid.
+    const newMarkdown = editorRef.current?.replaceRange(menu.from, menu.to, menu.ref.title);
+    if (newMarkdown != null && newMarkdown !== before) {
+      await persistMarkdown(newMarkdown);
+    }
+  }
+
+  function handleLinkOpen() {
+    const menu = linkMenu;
+    if (!menu) return;
+    setLinkMenu(null);
+    void handleLinkClick(menu.ref);
   }
 
   const taskHandlers: TaskWidgetHandlers = {
@@ -277,16 +306,22 @@ export function NoteEditorScreen({
     await persistMarkdown(newMarkdown);
   }
 
-  /** Close the task menu on any click outside it. */
+  /** Close the task/link menus on any click outside them or Esc. */
   useEffect(() => {
-    if (!taskMenu) return;
+    if (!taskMenu && !linkMenu) return;
     const closeOnOutside = (event: MouseEvent) => {
       const target = event.target;
-      if (target instanceof HTMLElement && target.closest('.task-menu')) return;
+      if (target instanceof HTMLElement && (target.closest('.task-menu') || target.closest('.link-menu'))) {
+        return;
+      }
       setTaskMenu(null);
+      setLinkMenu(null);
     };
     const closeOnEsc = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setTaskMenu(null);
+      if (event.key === 'Escape') {
+        setTaskMenu(null);
+        setLinkMenu(null);
+      }
     };
     document.addEventListener('mousedown', closeOnOutside);
     document.addEventListener('keydown', closeOnEsc);
@@ -294,7 +329,7 @@ export function NoteEditorScreen({
       document.removeEventListener('mousedown', closeOnOutside);
       document.removeEventListener('keydown', closeOnEsc);
     };
-  }, [taskMenu]);
+  }, [taskMenu, linkMenu]);
 
   // The selection menu must not offer actions that would collide with a
   // protected task-ref line.
@@ -325,13 +360,19 @@ export function NoteEditorScreen({
         value={markdown}
         onChange={handleEditorChange}
         taskHandlers={taskHandlers}
-        onNavigateToLink={(rawTarget) => void handleLinkClick(rawTarget)}
+        onNavigateToLink={(linkRef) => void handleLinkClick(linkRef)}
+        onLinkMenu={(request) => {
+          // A touch long-press can also spawn a native text selection; the
+          // link menu wins over the selection menu.
+          setSelectionInfo(null);
+          setLinkMenu(request);
+        }}
         onTagClick={onTagClick}
         onSelectionChange={setSelectionInfo}
-        getNoteTitles={async () => {
+        getNoteEntries={async () => {
           const { notes } = await getAppStorage();
           const all = await notes.list();
-          return all.filter((n) => n.id !== note.id).map(noteLabel);
+          return all.filter((n) => n.id !== note.id).map((n) => ({ id: n.id, title: noteLabel(n) }));
         }}
       />
       {showSelectionMenu && (
@@ -368,6 +409,16 @@ export function NoteEditorScreen({
           </button>
           <button onMouseDown={(e) => e.preventDefault()} onClick={() => void handleTaskMenuDelete()}>
             Удалить
+          </button>
+        </div>
+      )}
+      {linkMenu && (
+        <div className="link-menu" style={menuPosition({ bottom: linkMenu.position.y, left: linkMenu.position.x })}>
+          <button onMouseDown={(e) => e.preventDefault()} onClick={handleLinkOpen}>
+            Открыть
+          </button>
+          <button onMouseDown={(e) => e.preventDefault()} onClick={() => void handleLinkUnwrap()}>
+            Отвязать
           </button>
         </div>
       )}

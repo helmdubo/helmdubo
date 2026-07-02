@@ -120,8 +120,10 @@ export class TagRepo {
   }
 
   async getBacklinks(noteId: string): Promise<Array<{ noteId: string; title: string | null }>> {
+    // DISTINCT: an id-form wiki row (raw_target 'n:<id>') and a suggested
+    // row (raw_target = title) can both point a source at the same target.
     return this.conn.query<{ noteId: string; title: string | null }>(
-      `SELECT n.id AS noteId, n.title AS title
+      `SELECT DISTINCT n.id AS noteId, n.title AS title, n.updated_at
        FROM note_links nl
        JOIN notes n ON n.id = nl.source_note_id
        WHERE nl.target_note_id = ?

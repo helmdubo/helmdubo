@@ -28,19 +28,37 @@ export async function rebuildNoteDerivedIndex(conn: StorageConnection, noteId: s
   await tags.setNoteTags(noteId, extractTags(note.markdown));
 
   await tags.clearNoteLinks(noteId);
-  for (const rawTarget of extractWikiLinks(note.markdown)) {
-    const target = await resolveNoteLink(notes, rawTarget);
-    await tags.insertNoteLink({ sourceNoteId: noteId, rawTarget, targetNoteId: target?.id ?? null });
+  const wikiTargetIds = new Set<string>();
+  for (const link of extractWikiLinks(note.markdown)) {
+    if (link.noteId) {
+      // Id-form link (M-Ref): the note id is canonical; the title between
+      // the brackets is only a display cache. raw_target is normalized to
+      // the id so re-titling the display never duplicates the edge.
+      const target = await notes.get(link.noteId);
+      if (target) wikiTargetIds.add(target.id);
+      await tags.insertNoteLink({
+        sourceNoteId: noteId,
+        rawTarget: `n:${link.noteId}`,
+        targetNoteId: target?.id ?? null,
+      });
+    } else {
+      const target = await resolveNoteLink(notes, link.title);
+      if (target) wikiTargetIds.add(target.id);
+      await tags.insertNoteLink({
+        sourceNoteId: noteId,
+        rawTarget: link.title,
+        targetNoteId: target?.id ?? null,
+      });
+    }
   }
 
   // Unlinked mentions (delta §B.2): other notes' titles appearing in this
-  // note's prose become link_type='suggested' rows. Wiki links were inserted
-  // first, so the (source, raw_target) primary key + INSERT OR IGNORE makes
-  // an explicit [[link]] always win over a suggestion for the same target.
-  // Never touches note.markdown (INV-9) — this is index + highlight only.
+  // note's prose become link_type='suggested' rows. A note already linked
+  // explicitly (either link form) is skipped — the wiki edge subsumes the
+  // suggestion. Never touches note.markdown (INV-9) — index only.
   const dismissed = new Set(await tags.getDismissedSuggestionTargets(noteId));
   const candidates = (await notes.list())
-    .filter((other) => other.id !== noteId)
+    .filter((other) => other.id !== noteId && !wikiTargetIds.has(other.id))
     .map((other) => ({ noteId: other.id, title: noteLabel(other).trim() }))
     .filter((candidate) => !dismissed.has(candidate.title));
   const suggestedNoteIds = new Set<string>();

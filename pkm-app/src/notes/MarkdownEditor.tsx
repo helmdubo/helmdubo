@@ -4,22 +4,25 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { applyTaskRefEdit, removeTaskRefLine, taskRefExtension } from './taskRefExtension';
 import type { TaskWidgetHandlers } from './taskRefExtension';
 import { markupHighlightExtension } from './markupHighlightExtension';
+import type { LinkMenuRequest } from './markupHighlightExtension';
+import type { WikiLinkRef } from './parser';
 import { plainCheckboxExtension } from './plainCheckboxExtension';
 import { livePreviewExtension } from './livePreviewExtension';
 import { selectionToolbarExtension } from './selectionToolbarExtension';
 import type { SelectionInfo } from './selectionToolbarExtension';
 import { wikiAutocompleteExtension } from './wikiAutocompleteExtension';
-import type { NoteTitleProvider } from './wikiAutocompleteExtension';
+import type { NoteEntryProvider } from './wikiAutocompleteExtension';
 
 export interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
   taskHandlers?: TaskWidgetHandlers;
-  onNavigateToLink?: (rawTarget: string) => void;
+  onNavigateToLink?: (ref: WikiLinkRef) => void;
+  onLinkMenu?: (request: LinkMenuRequest) => void;
   onTagClick?: (tagName: string) => void;
   onSelectionChange?: (info: SelectionInfo | null) => void;
-  /** Note titles offered by the [[ autocomplete; omit to disable it. */
-  getNoteTitles?: NoteTitleProvider;
+  /** Notes offered by the [[ autocomplete; omit to disable it. */
+  getNoteEntries?: NoteEntryProvider;
 }
 
 export interface MarkdownEditorHandle {
@@ -43,7 +46,7 @@ const noopTaskHandlers: TaskWidgetHandlers = {
 };
 
 export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(
-  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onTagClick, onSelectionChange, getNoteTitles }, ref) {
+  function MarkdownEditor({ value, onChange, taskHandlers, onNavigateToLink, onLinkMenu, onTagClick, onSelectionChange, getNoteEntries }, ref) {
     const containerRef = useRef<HTMLDivElement>(null);
     const viewRef = useRef<EditorView | null>(null);
     const onChangeRef = useRef(onChange);
@@ -52,12 +55,14 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
     taskHandlersRef.current = taskHandlers ?? noopTaskHandlers;
     const onNavigateToLinkRef = useRef(onNavigateToLink);
     onNavigateToLinkRef.current = onNavigateToLink;
+    const onLinkMenuRef = useRef(onLinkMenu);
+    onLinkMenuRef.current = onLinkMenu;
     const onTagClickRef = useRef(onTagClick);
     onTagClickRef.current = onTagClick;
     const onSelectionChangeRef = useRef(onSelectionChange);
     onSelectionChangeRef.current = onSelectionChange;
-    const getNoteTitlesRef = useRef(getNoteTitles);
-    getNoteTitlesRef.current = getNoteTitles;
+    const getNoteEntriesRef = useRef(getNoteEntries);
+    getNoteEntriesRef.current = getNoteEntries;
 
     useImperativeHandle(
       ref,
@@ -106,12 +111,13 @@ export const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorPro
           markdown({ base: markdownLanguage }),
           taskRefExtension(stableTaskHandlers),
           markupHighlightExtension({
-            onLinkClick: (rawTarget) => onNavigateToLinkRef.current?.(rawTarget),
+            onLinkClick: (linkRef) => onNavigateToLinkRef.current?.(linkRef),
+            onLinkMenu: (request) => onLinkMenuRef.current?.(request),
             onTagClick: (tagName) => onTagClickRef.current?.(tagName),
           }),
           plainCheckboxExtension(),
           livePreviewExtension(),
-          wikiAutocompleteExtension(async () => (await getNoteTitlesRef.current?.()) ?? []),
+          wikiAutocompleteExtension(async () => (await getNoteEntriesRef.current?.()) ?? []),
           selectionToolbarExtension({
             onSelectionChange: (info) => onSelectionChangeRef.current?.(info),
           }),

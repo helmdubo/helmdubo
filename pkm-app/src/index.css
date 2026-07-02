@@ -18,7 +18,8 @@
 /* Floating menus over the editor: selection actions (+ Задача / + Заметка /
    Привязать) and the task long-press menu share one look. */
 .selection-menu,
-.task-menu {
+.task-menu,
+.link-menu {
   position: fixed;
   z-index: 1001;
   display: flex;
@@ -31,7 +32,8 @@
 }
 
 .selection-menu button,
-.task-menu button {
+.task-menu button,
+.link-menu button {
   border: none;
   background: #f4f0fb;
   border-radius: 4px;

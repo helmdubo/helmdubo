@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Note } from '../db/repositories';
 import { getAppStorage } from '../app/storage';
 import { rebuildNoteDerivedIndex } from '../db/reconcile';
+import { refreshNoteLinkTitles } from '../db/refreshLinkTitles';
 import { NotesList } from './NotesList';
 import { NoteEditorScreen } from './NoteEditorScreen';
 
@@ -45,6 +46,19 @@ export function NotesApp({ jumpToNoteId, refreshToken, active = true, onTagClick
   useEffect(() => {
     if (jumpToNoteId) setSelectedId(jumpToNoteId);
   }, [jumpToNoteId]);
+
+  /** M-Ref lazy refresh (v3 §8.5 pattern): opening a note re-syncs the
+   * display titles of its id-form [[links]] with the current titles of
+   * their target notes (renames elsewhere catch up here, with a
+   * note_revision written before the rewrite). */
+  useEffect(() => {
+    if (!selectedId) return;
+    void (async () => {
+      const { adapter } = await getAppStorage();
+      const changed = await refreshNoteLinkTitles(adapter, selectedId);
+      if (changed) await refresh();
+    })();
+  }, [selectedId]);
 
   async function handleCreate() {
     // Deselect first: the current editor unmounts right away, flushing its

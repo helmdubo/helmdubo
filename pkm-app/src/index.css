@@ -15,12 +15,10 @@
   cursor: pointer;
 }
 
-.cm-pkm-mention {
-  border-bottom: 1px dotted #9a7bd0;
-  cursor: pointer;
-}
-
-.mention-popover {
+/* Floating menus over the editor: selection actions (+ Задача / + Заметка /
+   Привязать) and the task long-press menu share one look. */
+.selection-menu,
+.task-menu {
   position: fixed;
   z-index: 1001;
   display: flex;
@@ -32,22 +30,51 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
-.mention-popover button {
+.selection-menu button,
+.task-menu button {
   border: none;
   background: #f4f0fb;
   border-radius: 4px;
-  padding: 0.35em 0.7em;
+  padding: 0.45em 0.8em;
   cursor: pointer;
-  font-size: 0.85em;
+  font-size: 0.9em;
+  touch-action: manipulation;
 }
 
+/* Task block reads as highlighted text: tinted pill, italic title, pointer
+   affordance. Done = same block, struck through and dimmed. */
 .task-ref-widget {
   display: inline-flex;
   align-items: center;
-  gap: 0.35em;
-  background: #f5f5f0;
+  gap: 0.4em;
+  background: #fdf3e4;
   border-radius: 4px;
-  padding: 1px 6px;
+  padding: 1px 7px;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.task-ref-mark {
+  color: #d9480f;
+  font-size: 0.9em;
+}
+
+.task-ref-title {
+  font-style: italic;
+}
+
+.task-ref-done {
+  opacity: 0.65;
+}
+
+.task-ref-done .task-ref-title {
+  text-decoration: line-through;
+}
+
+.task-ref-done .task-ref-mark {
+  color: #54a24b;
 }
 
 .cm-pkm-h1,
@@ -90,23 +117,6 @@
   color: #555;
   border-left: 3px solid #ccc;
   padding-left: 0.5em;
-}
-
-.selection-toolbar {
-  position: fixed;
-  left: 50%;
-  bottom: max(16px, env(safe-area-inset-bottom, 16px));
-  transform: translateX(-50%);
-  z-index: 1000;
-  background: #222;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  padding: 0.6em 1em;
-  min-height: 2.2em;
-  font-size: 0.9em;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
-  cursor: pointer;
 }
 
 .task-drawer {

@@ -47,6 +47,11 @@ export function NotesApp({ jumpToNoteId, refreshToken, active = true, onTagClick
   }, [jumpToNoteId]);
 
   async function handleCreate() {
+    // Deselect first: the current editor unmounts right away, flushing its
+    // pending edit into its own note. Without this, anything typed during
+    // the async create below still lands in the previous note's editor —
+    // fast typing after "+ New note" corrupted the previous note's state.
+    setSelectedId(null);
     const { notes: noteRepo } = await getAppStorage();
     const note = await noteRepo.create({ id: crypto.randomUUID(), markdown: '' });
     // Select before refreshing the list: until `notes` actually contains the

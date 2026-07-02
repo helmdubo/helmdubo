@@ -4,14 +4,12 @@ import { getAppStorage } from '../app/storage';
 import { rebuildNoteDerivedIndex } from '../db/reconcile';
 import { MarkdownEditor } from './MarkdownEditor';
 import type { MarkdownEditorHandle } from './MarkdownEditor';
-import type { TaskWidgetHandlers } from './taskRefExtension';
-import { renderTaskRefLine } from './taskRef';
+import type { TaskMenuRequest, TaskWidgetHandlers } from './taskRefExtension';
+import { findTaskRefLines, renderTaskRefLine } from './taskRef';
 import { Backlinks } from './Backlinks';
 import type { BacklinkEntry } from './Backlinks';
 import { noteLabel, resolveNoteLink } from './noteLabel';
-import type { SelectionRect } from './selectionToolbarExtension';
-import type { MentionCandidate, MentionMatch } from './mentions';
-import type { MentionScreenPosition } from './mentionExtension';
+import type { SelectionInfo } from './selectionToolbarExtension';
 import { TaskDrawer } from '../tasks/TaskDrawer';
 
 export interface NoteEditorScreenProps {
@@ -27,6 +25,19 @@ export interface NoteEditorScreenProps {
   onTagClick: (tagName: string) => void;
 }
 
+/** Trims whitespace off both ends of a captured selection, adjusting the
+ * range to match, so «+ Заметка» doesn't produce titles/links with stray
+ * spaces the user happened to include in the swipe. */
+function trimSelection(info: SelectionInfo): { from: number; to: number; text: string } {
+  const leading = info.text.length - info.text.trimStart().length;
+  const trailing = info.text.length - info.text.trimEnd().length;
+  return {
+    from: info.from + leading,
+    to: info.to - trailing,
+    text: info.text.trim(),
+  };
+}
+
 export function NoteEditorScreen({
   note,
   onSave,
@@ -38,12 +49,11 @@ export function NoteEditorScreen({
   const [markdown, setMarkdown] = useState(note.markdown);
   const [saving, setSaving] = useState(false);
   const [backlinks, setBacklinks] = useState<BacklinkEntry[]>([]);
-  const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
-  const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
-  const [mentionPopover, setMentionPopover] = useState<{
-    match: MentionMatch;
-    position: MentionScreenPosition;
-  } | null>(null);
+  const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(null);
+  /** Whether the trimmed selection matches an existing note ('exists'),
+   * would create a new one ('new'), or is still being resolved (null). */
+  const [selectionLinkMode, setSelectionLinkMode] = useState<'exists' | 'new' | null>(null);
+  const [taskMenu, setTaskMenu] = useState<TaskMenuRequest | null>(null);
   const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const titleRef = useRef(title);
@@ -60,66 +70,6 @@ export function NoteEditorScreen({
       setBacklinks(await tags.getBacklinks(note.id));
     })();
   }, [note.id]);
-
-  /** Other notes' labels minus dismissed pairs — what the mention layer may
-   * highlight. Reloaded after every save (note.markdown changes once the
-   * parent reconciles), so decorations follow new notes/titles without a
-   * page reload. */
-  async function loadMentionCandidates() {
-    const { notes, tags } = await getAppStorage();
-    const dismissed = new Set(await tags.getDismissedSuggestionTargets(note.id));
-    const all = await notes.list();
-    setMentionCandidates(
-      all
-        .filter((other) => other.id !== note.id)
-        .map((other) => ({ noteId: other.id, title: noteLabel(other).trim() }))
-        .filter((candidate) => !dismissed.has(candidate.title)),
-    );
-  }
-
-  useEffect(() => {
-    void loadMentionCandidates();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when this note's persisted content changes
-  }, [note.id, note.markdown]);
-
-  /** A popover pinned to stale click coordinates is worse than none — drop
-   * it as soon as the text underneath starts changing. */
-  function handleEditorChange(newMarkdown: string) {
-    if (mentionPopover) setMentionPopover(null);
-    setMarkdown(newMarkdown);
-  }
-
-  async function handleMentionLink() {
-    if (!mentionPopover) return;
-    const newMarkdown = editorRef.current?.materializeMention(mentionPopover.match);
-    setMentionPopover(null);
-    if (newMarkdown != null) await persistMarkdown(newMarkdown);
-  }
-
-  useEffect(() => {
-    if (!mentionPopover) return;
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      const target = event.target;
-      if (
-        target instanceof HTMLElement &&
-        (target.closest('.mention-popover') || target.closest('.cm-pkm-mention'))
-      ) {
-        return;
-      }
-      setMentionPopover(null);
-    };
-    document.addEventListener('mousedown', closeOnOutsideClick);
-    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
-  }, [mentionPopover]);
-
-  async function handleMentionDismiss() {
-    if (!mentionPopover) return;
-    const { match } = mentionPopover;
-    setMentionPopover(null);
-    const { tags } = await getAppStorage();
-    await tags.dismissSuggestion(note.id, match.title);
-    await loadMentionCandidates();
-  }
 
   const dirty = title !== (note.title ?? '') || markdown !== note.markdown;
   const dirtyRef = useRef(dirty);
@@ -160,25 +110,86 @@ export function NoteEditorScreen({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally only re-arms per note.id (remount boundary), reads latest values via refs
   }, [note.id]);
 
-  /** Task actions (toggle/rename/delete-ref) commit immediately, independent
-   * of the manual Save button used for prose edits. */
+  /** Task/link actions commit immediately, independent of the autosave
+   * debounce used for prose edits. */
   async function persistMarkdown(newMarkdown: string) {
     setMarkdown(newMarkdown);
     const currentTitle = titleRef.current;
     await onSave({ title: currentTitle.trim() === '' ? null : currentTitle, markdown: newMarkdown });
   }
 
+  function handleEditorChange(newMarkdown: string) {
+    if (taskMenu) setTaskMenu(null);
+    setMarkdown(newMarkdown);
+  }
+
+  /** Resolve whether the selection matches an existing note, to label the
+   * menu button «Привязать» vs «+ Заметка». */
+  useEffect(() => {
+    setSelectionLinkMode(null);
+    if (!selectionInfo) return;
+    const { text } = trimSelection(selectionInfo);
+    if (!text || text.includes('\n')) return; // multi-line selections can only become tasks
+    let cancelled = false;
+    void (async () => {
+      const { notes } = await getAppStorage();
+      const target = await resolveNoteLink(notes, text);
+      if (!cancelled) setSelectionLinkMode(target && target.id !== note.id ? 'exists' : target ? null : 'new');
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectionInfo, note.id]);
+
+  /** «+ Задача»: promote the captured selection to a task (v3 §8.3). The
+   * range was captured at selection time — reading the live selection here
+   * fails on Android, where tapping the menu collapses it first. */
   async function handleCreateTask() {
-    const editor = editorRef.current;
-    if (!editor) return;
-    const selected = editor.getSelectedText().trim();
-    if (!selected) return;
+    const info = selectionInfo;
+    if (!info) return;
+    const taskTitle = info.text.replace(/\s+/g, ' ').trim();
+    if (!taskTitle) return;
     const { tasks } = await getAppStorage();
-    const task = await tasks.createWithFirstRef(note.id, selected);
-    const refLine = renderTaskRefLine({ checked: false, title: selected, taskId: task.id });
-    const newMarkdown = editor.replaceSelection(refLine);
-    setSelectionRect(null);
-    await persistMarkdown(newMarkdown);
+    const task = await tasks.createWithFirstRef(note.id, taskTitle);
+    const doc = markdownRef.current;
+    // A ref-line only parses as a whole line — pad with newlines when the
+    // selection was a mid-line fragment.
+    const refLine =
+      (info.from > 0 && doc[info.from - 1] !== '\n' ? '\n' : '') +
+      renderTaskRefLine({ checked: false, title: taskTitle, taskId: task.id }) +
+      (info.to < doc.length && doc[info.to] !== '\n' ? '\n' : '');
+    const newMarkdown = editorRef.current?.replaceRange(info.from, info.to, refLine);
+    setSelectionInfo(null);
+    if (newMarkdown != null && newMarkdown !== doc) {
+      await persistMarkdown(newMarkdown);
+    } else {
+      // The edit was blocked (e.g. selection touched a protected ref-line) —
+      // don't leave an orphaned task object behind (INV-4).
+      await tasks.delete(task.id);
+    }
+  }
+
+  /** «+ Заметка» / «Привязать»: create the target note in the background if
+   * needed and turn the selection into a [[link]]. No navigation — the user
+   * is accumulating mass for a future cluster; work stays in this note.
+   * Other occurrences of the same text are deliberately left untouched. */
+  async function handleLinkSelection() {
+    const info = selectionInfo;
+    if (!info) return;
+    const { from, to, text } = trimSelection(info);
+    if (!text || text.includes('\n')) return;
+    const { notes } = await getAppStorage();
+    const existing = await resolveNoteLink(notes, text);
+    if (!existing) {
+      await notes.create({ id: crypto.randomUUID(), title: text, markdown: '' });
+    }
+    const before = markdownRef.current;
+    const newMarkdown = editorRef.current?.replaceRange(from, to, `[[${text}]]`);
+    setSelectionInfo(null);
+    if (newMarkdown != null && newMarkdown !== before) {
+      await persistMarkdown(newMarkdown);
+    }
+    await onNotesChanged();
   }
 
   async function handleLinkClick(rawTarget: string) {
@@ -189,10 +200,6 @@ export function NoteEditorScreen({
       // it is an explicit user action, not an automatic side effect.
       if (!window.confirm(`Создать заметку «${rawTarget}»?`)) return;
       target = await notes.create({ id: crypto.randomUUID(), title: rawTarget, markdown: '' });
-      // The link in this note was a frontier link (target_note_id=NULL) until
-      // just now; re-reconcile both sides so it points at the note we just
-      // created (the new note's own derived index is trivially empty, but
-      // reconciling it keeps the invariant unconditional).
       await rebuildNoteDerivedIndex(adapter, note.id);
       await rebuildNoteDerivedIndex(adapter, target.id);
     }
@@ -204,49 +211,18 @@ export function NoteEditorScreen({
   }
 
   const taskHandlers: TaskWidgetHandlers = {
-    onToggle: (taskId, checked, newMarkdown) => {
-      void (async () => {
-        const { tasks } = await getAppStorage();
-        await tasks.setStatus(taskId, checked ? 'done' : 'open');
-        await persistMarkdown(newMarkdown);
-      })();
-    },
-    onRename: (taskId, newTaskTitle, newMarkdown) => {
-      void (async () => {
-        const { tasks } = await getAppStorage();
-        await tasks.setTitle(taskId, newTaskTitle);
-        await persistMarkdown(newMarkdown);
-      })();
-    },
-    onRequestDeleteRef: async (taskId, taskTitle) => {
-      const { tasks } = await getAppStorage();
-      const count = await tasks.getRefCount(taskId);
-      if (count <= 1) {
-        return window.confirm(`Lose task "${taskTitle}"? It has no other references.`);
-      }
-      return true;
-    },
-    onDeleteRefApplied: (taskId, newMarkdown) => {
-      void (async () => {
-        const { tasks } = await getAppStorage();
-        const remaining = await tasks.removeRef(taskId, note.id);
-        if (remaining === 0) {
-          await tasks.delete(taskId);
-        }
-        await persistMarkdown(newMarkdown);
-      })();
-    },
     onOpenTask: setDrawerTaskId,
+    onTaskMenu: setTaskMenu,
   };
 
-  /** Drawer edits (v3 §8.5 "правка через ref/widget"): write the task object,
-   * rewrite this note's ref-line immediately; other notes' lines catch up
-   * lazily. Status toggles keep the line's inline #tags — only the checkbox
-   * changes. */
-  async function handleDrawerSetTitle(taskId: string, title: string) {
+  /** Menu/drawer edits (v3 §8.5 "правка через ref/widget"): write the task
+   * object, rewrite this note's ref-line immediately; other notes' lines
+   * catch up lazily. Status toggles keep the line's inline #tags — only the
+   * checkbox changes. */
+  async function handleDrawerSetTitle(taskId: string, newTaskTitle: string) {
     const { tasks } = await getAppStorage();
-    await tasks.setTitle(taskId, title);
-    const newMarkdown = editorRef.current?.rewriteTaskRef(taskId, { title });
+    await tasks.setTitle(taskId, newTaskTitle);
+    const newMarkdown = editorRef.current?.rewriteTaskRef(taskId, { title: newTaskTitle });
     if (newMarkdown != null) await persistMarkdown(newMarkdown);
   }
 
@@ -255,6 +231,65 @@ export function NoteEditorScreen({
     await tasks.setStatus(taskId, status);
     const newMarkdown = editorRef.current?.rewriteTaskRef(taskId, { checked: status === 'done' });
     if (newMarkdown != null) await persistMarkdown(newMarkdown);
+  }
+
+  async function handleTaskMenuToggle() {
+    const menu = taskMenu;
+    if (!menu) return;
+    setTaskMenu(null);
+    await handleDrawerSetStatus(menu.taskId, menu.checked ? 'open' : 'done');
+  }
+
+  async function handleTaskMenuDelete() {
+    const menu = taskMenu;
+    if (!menu) return;
+    setTaskMenu(null);
+    const { tasks } = await getAppStorage();
+    const count = await tasks.getRefCount(menu.taskId);
+    if (count <= 1 && !window.confirm(`Потеряете задачу «${menu.title}» — других ссылок на неё нет.`)) {
+      return;
+    }
+    const newMarkdown = editorRef.current?.removeTaskRef(menu.taskId);
+    if (newMarkdown == null) return;
+    const remaining = await tasks.removeRef(menu.taskId, note.id);
+    if (remaining === 0) {
+      await tasks.delete(menu.taskId);
+    }
+    await persistMarkdown(newMarkdown);
+  }
+
+  /** Close the task menu on any click outside it. */
+  useEffect(() => {
+    if (!taskMenu) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest('.task-menu')) return;
+      setTaskMenu(null);
+    };
+    const closeOnEsc = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setTaskMenu(null);
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    document.addEventListener('keydown', closeOnEsc);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside);
+      document.removeEventListener('keydown', closeOnEsc);
+    };
+  }, [taskMenu]);
+
+  // The selection menu must not offer actions that would collide with a
+  // protected task-ref line.
+  const selectionTouchesTaskRef =
+    selectionInfo !== null &&
+    findTaskRefLines(markdown).some((m) => selectionInfo.from < m.to && selectionInfo.to > m.from);
+  const showSelectionMenu = selectionInfo !== null && !selectionTouchesTaskRef;
+  const selectionIsMultiline = selectionInfo !== null && selectionInfo.text.includes('\n');
+
+  function menuPosition(rect: { bottom: number; left: number }) {
+    return {
+      top: rect.bottom + 8,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - 220)),
+    };
   }
 
   return (
@@ -273,42 +308,49 @@ export function NoteEditorScreen({
         taskHandlers={taskHandlers}
         onNavigateToLink={(rawTarget) => void handleLinkClick(rawTarget)}
         onTagClick={onTagClick}
-        onSelectionChange={setSelectionRect}
+        onSelectionChange={setSelectionInfo}
         getNoteTitles={async () => {
           const { notes } = await getAppStorage();
           const all = await notes.list();
           return all.filter((n) => n.id !== note.id).map(noteLabel);
         }}
-        mentionCandidates={mentionCandidates}
-        onMentionClick={(match, position) => setMentionPopover({ match, position })}
       />
-      {mentionPopover && (
-        <div
-          className="mention-popover"
-          style={{ top: mentionPopover.position.y + 8, left: mentionPopover.position.x }}
-        >
-          <button onMouseDown={(e) => e.preventDefault()} onClick={() => void handleMentionLink()}>
-            Связать
+      {showSelectionMenu && (
+        <div className="selection-menu" style={menuPosition(selectionInfo.rect)}>
+          {/* Actions fire on pointerdown: on touch devices the tap itself can
+              collapse the selection (unmounting this menu) before a click
+              event would ever arrive. */}
+          <button
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              void handleCreateTask();
+            }}
+          >
+            + Задача
           </button>
-          <button onMouseDown={(e) => e.preventDefault()} onClick={() => void handleMentionDismiss()}>
-            Скрыть
-          </button>
+          {!selectionIsMultiline && selectionLinkMode !== null && (
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                void handleLinkSelection();
+              }}
+            >
+              {selectionLinkMode === 'exists' ? 'Привязать' : '+ Заметка'}
+            </button>
+          )}
         </div>
       )}
-      {selectionRect && (
-        // Docked to the bottom of the screen rather than positioned next to
-        // the selection: the OS's native copy/paste toolbar always renders
-        // right next to the selected text, and there's no web API to
-        // suppress that system-level overlay. Anchoring somewhere it never
-        // reaches (instead of chasing its position) is the only reliable
-        // way to keep the two from competing for the same tap.
-        <button
-          className="selection-toolbar"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => void handleCreateTask()}
-        >
-          + Task
-        </button>
+      {taskMenu && (
+        <div className="task-menu" style={menuPosition({ bottom: taskMenu.position.y, left: taskMenu.position.x })}>
+          <button onMouseDown={(e) => e.preventDefault()} onClick={() => void handleTaskMenuToggle()}>
+            {taskMenu.checked ? 'Открыть' : 'Закрыть'}
+          </button>
+          <button onMouseDown={(e) => e.preventDefault()} onClick={() => void handleTaskMenuDelete()}>
+            Удалить
+          </button>
+        </div>
       )}
       <Backlinks backlinks={backlinks} onOpen={onNavigateToNote} />
       {drawerTaskId && (

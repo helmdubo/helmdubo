@@ -10,13 +10,20 @@ import type { DecorationSet, ViewUpdate } from '@codemirror/view';
 import { findTaskRefLines, renderTaskRefLine } from './taskRef';
 import type { TaskRefLineMatch } from './taskRef';
 
+/** What the host needs to render the long-press/right-click task menu. */
+export interface TaskMenuRequest {
+  taskId: string;
+  title: string;
+  checked: boolean;
+  position: { x: number; y: number };
+}
+
 export interface TaskWidgetHandlers {
-  onToggle: (taskId: string, checked: boolean, newMarkdown: string) => void;
-  onRename: (taskId: string, title: string, newMarkdown: string) => void;
-  onRequestDeleteRef: (taskId: string, title: string) => Promise<boolean>;
-  onDeleteRefApplied: (taskId: string, newMarkdown: string) => void;
-  /** Click on the widget's title text — opens the task drawer (delta §B.3). */
+  /** Short click/tap on the task block — opens the task drawer. */
   onOpenTask: (taskId: string) => void;
+  /** Long-press / right-click on the task block — opens the small
+   * toggle/delete menu (rendered by the host). */
+  onTaskMenu: (request: TaskMenuRequest) => void;
 }
 
 /** Marks a transaction as an internal, programmatic task-ref edit so the
@@ -31,6 +38,12 @@ function dispatchInternalChange(view: EditorView, from: number, to: number, inse
   });
 }
 
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_SLOP_PX = 8;
+
+/** The task block reads as styled text (delta §B.3 + owner feedback): no
+ * inline buttons. Click opens the drawer; press-and-hold (or right-click)
+ * opens the toggle/delete menu; done renders the same text struck through. */
 class TaskRefWidget extends WidgetType {
   constructor(
     private readonly match: TaskRefLineMatch,
@@ -47,67 +60,71 @@ class TaskRefWidget extends WidgetType {
     );
   }
 
-  toDOM(view: EditorView): HTMLElement {
-    const { taskId, checked, title, from, to } = this.match;
+  toDOM(): HTMLElement {
+    const { taskId, checked, title } = this.match;
     const handlers = this.handlers;
 
     const wrap = document.createElement('span');
-    wrap.className = 'task-ref-widget';
+    wrap.className = checked ? 'task-ref-widget task-ref-done' : 'task-ref-widget';
+    wrap.setAttribute('role', 'button');
+    wrap.setAttribute('aria-label', `Task "${title}" (${checked ? 'done' : 'open'})`);
 
-    const checkbox = wrap.appendChild(document.createElement('input'));
-    checkbox.type = 'checkbox';
-    checkbox.checked = checked;
-    checkbox.setAttribute('aria-label', `Mark "${title}" as ${checked ? 'open' : 'done'}`);
-    checkbox.addEventListener('mousedown', (e) => e.preventDefault());
-    checkbox.addEventListener('click', (e) => {
-      e.preventDefault();
-      const newChecked = !checked;
-      const newLine = renderTaskRefLine({ checked: newChecked, title, taskId });
-      dispatchInternalChange(view, from, to, newLine);
-      handlers.onToggle(taskId, newChecked, view.state.doc.toString());
-    });
+    const mark = wrap.appendChild(document.createElement('span'));
+    mark.className = 'task-ref-mark';
+    mark.textContent = checked ? '✓' : '○';
 
     const titleEl = wrap.appendChild(document.createElement('span'));
     titleEl.className = 'task-ref-title';
     titleEl.textContent = title;
-    if (checked) titleEl.style.textDecoration = 'line-through';
-    titleEl.style.cursor = 'pointer';
-    titleEl.setAttribute('role', 'button');
-    titleEl.setAttribute('aria-label', `Open task "${title}"`);
-    titleEl.addEventListener('mousedown', (e) => e.preventDefault());
-    titleEl.addEventListener('click', () => handlers.onOpenTask(taskId));
 
-    const renameBtn = wrap.appendChild(document.createElement('button'));
-    renameBtn.type = 'button';
-    renameBtn.textContent = '✎';
-    renameBtn.setAttribute('aria-label', `Rename "${title}"`);
-    renameBtn.addEventListener('mousedown', (e) => e.preventDefault());
-    renameBtn.addEventListener('click', () => {
-      const next = window.prompt('Rename task', title);
-      if (next === null) return;
-      const trimmed = next.trim();
-      if (!trimmed || trimmed === title) return;
-      const newLine = renderTaskRefLine({ checked, title: trimmed, taskId });
-      dispatchInternalChange(view, from, to, newLine);
-      handlers.onRename(taskId, trimmed, view.state.doc.toString());
+    let pressTimer: ReturnType<typeof setTimeout> | null = null;
+    let menuFired = false;
+    let downPoint: { x: number; y: number } | null = null;
+
+    const clearPress = () => {
+      if (pressTimer !== null) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+    };
+    const fireMenu = (x: number, y: number) => {
+      if (menuFired) return;
+      menuFired = true;
+      handlers.onTaskMenu({ taskId, title, checked, position: { x, y } });
+    };
+
+    wrap.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      menuFired = false;
+      downPoint = { x: e.clientX, y: e.clientY };
+      clearPress();
+      pressTimer = setTimeout(() => fireMenu(e.clientX, e.clientY), LONG_PRESS_MS);
     });
-
-    const deleteBtn = wrap.appendChild(document.createElement('button'));
-    deleteBtn.type = 'button';
-    deleteBtn.textContent = '×';
-    deleteBtn.setAttribute('aria-label', `Remove "${title}" from this note`);
-    deleteBtn.addEventListener('mousedown', (e) => e.preventDefault());
-    deleteBtn.addEventListener('click', () => {
-      void (async () => {
-        const proceed = await handlers.onRequestDeleteRef(taskId, title);
-        if (!proceed) return;
-        // Per brief §8.6: removing a ref turns the ref-line back into
-        // ordinary text — not a plain checkbox line, which would still
-        // render as a checkbox widget and leave the note looking like the
-        // task is still there in some form.
-        dispatchInternalChange(view, from, to, title);
-        handlers.onDeleteRefApplied(taskId, view.state.doc.toString());
-      })();
+    wrap.addEventListener('pointermove', (e) => {
+      if (!downPoint) return;
+      const dx = e.clientX - downPoint.x;
+      const dy = e.clientY - downPoint.y;
+      if (dx * dx + dy * dy > LONG_PRESS_SLOP_PX * LONG_PRESS_SLOP_PX) clearPress();
+    });
+    wrap.addEventListener('pointerup', () => {
+      clearPress();
+      downPoint = null;
+    });
+    wrap.addEventListener('pointercancel', () => {
+      clearPress();
+      downPoint = null;
+    });
+    wrap.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (menuFired) return; // the long-press already opened the menu
+      handlers.onOpenTask(taskId);
+    });
+    // Desktop right-click; on Android a long-press also lands here, where
+    // menuFired keeps it from double-opening after the timer path.
+    wrap.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      clearPress();
+      fireMenu(e.clientX, e.clientY);
     });
 
     return wrap;
@@ -138,6 +155,18 @@ export function applyTaskRefEdit(
     taskId,
   });
   dispatchInternalChange(view, match.from, match.to, newLine);
+  return view.state.doc.toString();
+}
+
+/**
+ * Turns a task's ref-line back into ordinary text (§8.6 "remove ref") and
+ * returns the resulting full document, or null when this note holds no ref
+ * for the task.
+ */
+export function removeTaskRefLine(view: EditorView, taskId: string): string | null {
+  const match = findTaskRefLines(view.state.doc.toString()).find((m) => m.taskId === taskId);
+  if (!match) return null;
+  dispatchInternalChange(view, match.from, match.to, match.title);
   return view.state.doc.toString();
 }
 
